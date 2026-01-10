@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Redis - Message broker and result backend
+  redis:
+    image: redis:7-alpine
+    container_name: podcast_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: podcast_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./assets:/app/assets
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: podcast_worker
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./assets:/app/assets
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: celery -A backend.workers.celery_config:celery_app worker --loglevel=info --concurrency=2
+
+volumes:
+  redis_data:

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Podcast Language Converter - DE → PL</title>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">
+                🎙️ Podcast Language Converter
+            </h1>
+            <p class="text-gray-600">
+                Automatically convert German YouTube podcasts to Polish with AI narration
+            </p>
+        </header>
+
+        <!-- Input Section -->
+        <section class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Add New Videos</h2>
+
+            <form id="job-form" hx-post="/api/jobs" hx-swap="none" onsubmit="handleSubmit(event)">
+                <div class="mb-4">
+                    <label class="block text-gray-700 font-medium mb-2">
+                        YouTube URLs (one per line):
+                    </label>
+                    <textarea
+                        id="urls-input"
+                        class="w-full h-32 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="https://www.youtube.com/watch?v=xxxxx&#10;https://youtu.be/yyyyy"
+                        required
+                    ></textarea>
+                </div>
+
+                <button
+                    type="submit"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition duration-200"
+                >
+                    🚀 Start Processing
+                </button>
+            </form>
+        </section>
+
+        <!-- Jobs Table -->
+        <section class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-semibold">Processing Queue</h2>
+                <button
+                    onclick="refreshJobs()"
+                    class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg transition duration-200"
+                >
+                    🔄 Refresh
+                </button>
+            </div>
+
+            <div id="jobs-container" hx-get="/api/jobs" hx-trigger="load, every 5s" hx-swap="innerHTML">
+                <!-- Jobs will be loaded here via HTMX -->
+                <div class="text-center py-8 text-gray-500">
+                    Loading jobs...
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // Handle form submission
+        function handleSubmit(event) {
+            event.preventDefault();
+
+            const urlsText = document.getElementById('urls-input').value;
+            const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u);
+
+            if (urls.length === 0) {
+                alert('Please enter at least one YouTube URL');
+                return;
+            }
+
+            // Send POST request
+            fetch('/api/jobs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ urls: urls })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Jobs created:', data);
+                document.getElementById('urls-input').value = '';
+                refreshJobs();
+                alert(`Created ${data.total} job(s)`);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to create jobs: ' + error);
+            });
+        }
+
+        // Refresh jobs list
+        function refreshJobs() {
+            fetch('/api/jobs')
+                .then(response => response.json())
+                .then(data => {
+                    renderJobs(data.jobs);
+                })
+                .catch(error => {
+                    console.error('Error fetching jobs:', error);
+                });
+        }
+
+        // Render jobs table
+        function renderJobs(jobs) {
+            const container = document.getElementById('jobs-container');
+
+            if (jobs.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        No jobs yet. Add YouTube URLs above to get started.
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50 border-b">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Video</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+            `;
+
+            jobs.forEach(job => {
+                const statusColor = getStatusColor(job.status);
+                const statusIcon = getStatusIcon(job.status);
+
+                html += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-4">
+                            <div class="text-sm font-medium text-gray-900">
+                                ${job.video_title || job.video_id || 'Loading...'}
+                            </div>
+                            <div class="text-xs text-gray-500">${job.id.substring(0, 8)}</div>
+                        </td>
+                        <td class="px-4 py-4">
+                            <span class="px-3 py-1 rounded-full text-xs font-semibold ${statusColor}">
+                                ${statusIcon} ${job.status}
+                            </span>
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${job.progress.percent}%"></div>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">${Math.round(job.progress.percent)}%</div>
+                        </td>
+                        <td class="px-4 py-4">
+                            <div class="flex space-x-2">
+                                <button
+                                    onclick="viewLogs('${job.id}')"
+                                    class="text-blue-600 hover:text-blue-800 text-sm"
+                                >
+                                    📋 Logs
+                                </button>
+                                ${job.status === 'DONE' ? `
+                                    <a
+                                        href="/api/jobs/${job.id}/download"
+                                        class="text-green-600 hover:text-green-800 text-sm"
+                                    >
+                                        ⬇️ Download
+                                    </a>
+                                ` : ''}
+                                <button
+                                    onclick="deleteJob('${job.id}')"
+                                    class="text-red-600 hover:text-red-800 text-sm"
+                                >
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        // Get status color
+        function getStatusColor(status) {
+            const colors = {
+                'QUEUED': 'bg-gray-200 text-gray-800',
+                'DOWNLOADING': 'bg-blue-200 text-blue-800',
+                'TRANSCRIBING': 'bg-yellow-200 text-yellow-800',
+                'TRANSLATING': 'bg-purple-200 text-purple-800',
+                'GENERATING_TTS': 'bg-indigo-200 text-indigo-800',
+                'RENDERING': 'bg-orange-200 text-orange-800',
+                'DONE': 'bg-green-200 text-green-800',
+                'ERROR': 'bg-red-200 text-red-800'
+            };
+            return colors[status] || 'bg-gray-200 text-gray-800';
+        }
+
+        // Get status icon
+        function getStatusIcon(status) {
+            const icons = {
+                'QUEUED': '⏳',
+                'DOWNLOADING': '⬇️',
+                'TRANSCRIBING': '📝',
+                'TRANSLATING': '🔄',
+                'GENERATING_TTS': '🎤',
+                'RENDERING': '🎬',
+                'DONE': '✅',
+                'ERROR': '❌'
+            };
+            return icons[status] || '⏳';
+        }
+
+        // View logs
+        function viewLogs(jobId) {
+            window.open(`/api/jobs/${jobId}/logs`, '_blank');
+        }
+
+        // Delete job
+        function deleteJob(jobId) {
+            if (!confirm('Are you sure you want to delete this job?')) {
+                return;
+            }
+
+            fetch(`/api/jobs/${jobId}`, { method: 'DELETE' })
+                .then(() => {
+                    refreshJobs();
+                })
+                .catch(error => {
+                    console.error('Error deleting job:', error);
+                    alert('Failed to delete job');
+                });
+        }
+
+        // Auto-refresh jobs every 5 seconds
+        setInterval(refreshJobs, 5000);
+
+        // Initial load
+        refreshJobs();
+    </script>
+</body>
+</html>

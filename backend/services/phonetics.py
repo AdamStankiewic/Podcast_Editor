@@ -1,0 +1,142 @@
+"""
+Phonetics service for SSML pronunciation injection
+Parses pronunciations.csv and injects <sub> and <phoneme> tags
+"""
+import csv
+import re
+from pathlib import Path
+from typing import List, Dict, Tuple
+from dataclasses import dataclass
+
+
+@dataclass
+class PronunciationRule:
+    """Single pronunciation rule"""
+    source: str  # Original word/phrase
+    target: str  # Replacement or IPA notation
+    mode: str  # "sub" or "phoneme_ipa"
+
+
+class PhoneticsService:
+    """Handles pronunciation rules and SSML injection"""
+
+    def __init__(self, csv_path: str = "./pronunciations.csv"):
+        self.csv_path = Path(csv_path)
+        self.rules: List[PronunciationRule] = []
+        self.load_rules()
+
+    def load_rules(self):
+        """Load pronunciation rules from CSV"""
+        if not self.csv_path.exists():
+            print(f"Warning: Pronunciations CSV not found: {self.csv_path}")
+            return
+
+        try:
+            with self.csv_path.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    source = row.get("source", "").strip()
+                    target = row.get("target", "").strip()
+                    mode = row.get("mode", "").strip()
+
+                    if not source or not target or not mode:
+                        continue
+
+                    if mode not in ["sub", "phoneme_ipa"]:
+                        print(f"Warning: Invalid mode '{mode}' for rule '{source}', skipping")
+                        continue
+
+                    self.rules.append(PronunciationRule(
+                        source=source,
+                        target=target,
+                        mode=mode
+                    ))
+
+            print(f"Loaded {len(self.rules)} pronunciation rules")
+
+        except Exception as e:
+            print(f"Error loading pronunciation rules: {e}")
+
+    def inject_ssml_tags(self, text: str) -> str:
+        """
+        Inject SSML pronunciation tags into text
+        - Case-insensitive matching
+        - Only whole word/phrase matching
+        - Preserves original text casing inside tags
+        """
+        if not self.rules:
+            return text
+
+        # Sort rules by length (longest first) to handle phrases before words
+        sorted_rules = sorted(self.rules, key=lambda r: len(r.source), reverse=True)
+
+        result = text
+
+        for rule in sorted_rules:
+            # Build regex pattern for whole word/phrase matching (case-insensitive)
+            # Use word boundaries, but handle multi-word phrases
+            pattern = r'\b(' + re.escape(rule.source) + r')\b'
+
+            def replacer(match):
+                """Replace function that preserves original casing"""
+                original = match.group(1)
+
+                if rule.mode == "sub":
+                    # <sub alias="target">original</sub>
+                    return f'<sub alias="{self._escape_xml(rule.target)}">{original}</sub>'
+                elif rule.mode == "phoneme_ipa":
+                    # <phoneme alphabet="ipa" ph="target">original</phoneme>
+                    return f'<phoneme alphabet="ipa" ph="{self._escape_xml(rule.target)}">{original}</phoneme>'
+
+                return original
+
+            # Replace all occurrences (case-insensitive)
+            result = re.sub(pattern, replacer, result, flags=re.IGNORECASE)
+
+        return result
+
+    def _escape_xml(self, text: str) -> str:
+        """Escape XML special characters for attributes"""
+        return (text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&apos;"))
+
+    def validate_ssml(self, text: str) -> Tuple[bool, str]:
+        """
+        Validate that SSML tags are properly formed
+        Returns (is_valid, error_message)
+        """
+        # Check for unclosed tags
+        sub_open = text.count("<sub ")
+        sub_close = text.count("</sub>")
+
+        phoneme_open = text.count("<phoneme ")
+        phoneme_close = text.count("</phoneme>")
+
+        errors = []
+
+        if sub_open != sub_close:
+            errors.append(f"Mismatched <sub> tags: {sub_open} open, {sub_close} close")
+
+        if phoneme_open != phoneme_close:
+            errors.append(f"Mismatched <phoneme> tags: {phoneme_open} open, {phoneme_close} close")
+
+        # Check for nested tags (not allowed in SSML)
+        if re.search(r'<(sub|phoneme)[^>]*>.*?<(sub|phoneme)', text):
+            errors.append("Nested pronunciation tags detected (not allowed)")
+
+        if errors:
+            return False, "; ".join(errors)
+
+        return True, ""
+
+    def get_statistics(self, text: str) -> Dict[str, int]:
+        """Get statistics about injected tags"""
+        return {
+            "sub_tags": text.count("<sub "),
+            "phoneme_tags": text.count("<phoneme "),
+            "total_rules_applied": text.count("<sub ") + text.count("<phoneme ")
+        }

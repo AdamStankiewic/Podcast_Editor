@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data and outputs
+data/
+output/
+*.mp4
+*.wav
+*.mp3
+*.vtt
+
+# Assets (except placeholders)
+assets/*.mp4
+assets/*.mov
+assets/*.avi
+
+# Logs
+*.log
+logs/
+celerybeat-schedule
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.tar
+
+# Temporary files
+temp/
+tmp/
+_temp*/
+audio_out/
