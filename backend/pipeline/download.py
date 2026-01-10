@@ -2,6 +2,7 @@
 Pipeline Step 1: Download video from YouTube
 Idempotent: Skips if original.mp4 already exists
 """
+import os
 from pathlib import Path
 from backend.services.youtube import YouTubeService
 from backend.services.storage import get_storage
@@ -47,10 +48,12 @@ def download_video(job_id: str, url: str) -> dict:
         # Get metadata first
         info = yt_service.get_video_info(url)
 
-        # Check duration limit (2 hours = 7200 seconds)
-        max_duration = 7200
+        # Check duration limit (configurable via .env)
+        max_hours = int(os.getenv("MAX_VIDEO_DURATION_HOURS", "2"))
+        max_duration = max_hours * 3600  # Convert hours to seconds
+
         if info.get("duration", 0) > max_duration:
-            raise ValueError(f"Video duration ({info['duration']}s) exceeds 2 hour limit")
+            raise ValueError(f"Video duration ({info['duration']}s) exceeds {max_hours} hour limit")
 
         # Download
         downloaded_path = yt_service.download_video(url, video_path)
