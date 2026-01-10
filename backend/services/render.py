@@ -14,10 +14,50 @@ class VideoRenderService:
     def __init__(
         self,
         overlay_path: str = "./assets/overlay.png",
-        loop_audio_path: str = "./assets/loop.wav"
+        loop_audio_path: str = "./assets/loop.wav",
+        use_gpu: bool = True  # NVENC acceleration
     ):
         self.overlay_path = Path(overlay_path)
         self.loop_audio_path = Path(loop_audio_path)
+        self.use_gpu = use_gpu
+
+        # Detect NVENC availability
+        if self.use_gpu:
+            self.encoder, self.preset = self._detect_gpu_encoder()
+        else:
+            self.encoder = "libx264"
+            self.preset = "medium"
+
+    def _detect_gpu_encoder(self) -> tuple[str, str]:
+        """
+        Detect available GPU encoder (NVENC, VideoToolbox, etc.)
+        Returns (encoder, preset)
+        """
+        try:
+            # Check if NVENC is available
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            encoders = result.stdout
+
+            # Priority: NVENC (NVIDIA) > VideoToolbox (macOS) > CPU
+            if "h264_nvenc" in encoders:
+                print("✓ Detected NVIDIA NVENC - using GPU acceleration")
+                return "h264_nvenc", "p4"  # p4 = medium quality preset
+            elif "h264_videotoolbox" in encoders:
+                print("✓ Detected VideoToolbox - using GPU acceleration")
+                return "h264_videotoolbox", "medium"
+            else:
+                print("⚠ No GPU encoder detected - using CPU (libx264)")
+                return "libx264", "medium"
+
+        except Exception as e:
+            print(f"⚠ GPU detection failed: {e}, falling back to CPU")
+            return "libx264", "medium"
 
     def render_final_video(
         self,
@@ -232,9 +272,9 @@ class VideoRenderService:
                     "-filter_complex",
                     f"[0:v]setpts={setpts_value}*PTS[v];[v][1:v]overlay=0:0:format=auto",
                     "-an",  # Remove audio
-                    "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "23",
+                    "-c:v", self.encoder,
+                    "-preset", self.preset,
+                    "-crf", "23" if self.encoder == "libx264" else "20",  # Lower CRF for NVENC
                     str(output_video)
                 ], check=True, capture_output=True)
             except subprocess.CalledProcessError as e:
@@ -247,9 +287,9 @@ class VideoRenderService:
                     "-i", str(input_video),
                     "-vf", f"setpts={setpts_value}*PTS",
                     "-an",  # Remove audio
-                    "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "23",
+                    "-c:v", self.encoder,
+                    "-preset", self.preset,
+                    "-crf", "23" if self.encoder == "libx264" else "20",  # Lower CRF for NVENC
                     str(output_video)
                 ], check=True, capture_output=True)
             except subprocess.CalledProcessError as e:

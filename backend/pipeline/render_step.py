@@ -6,6 +6,7 @@ Pipeline Step 5: Render final video
 - Export final MP4
 Idempotent: Skips if final.mp4 already exists
 """
+import os
 from pathlib import Path
 from backend.services.render import VideoRenderService
 from backend.services.storage import get_storage
@@ -43,10 +44,12 @@ def render_final_video(
     storage.update_progress(job_id, "rendering", 5, message="Rendering final video...")
     storage.add_log(job_id, "Starting video rendering pipeline...", "INFO")
 
-    # Initialize render service
+    # Initialize render service with GPU support
+    use_gpu = os.getenv("USE_GPU_ENCODING", "true").lower() == "true"
     render_service = VideoRenderService(
         overlay_path=overlay_path,
-        loop_audio_path=loop_audio_path
+        loop_audio_path=loop_audio_path,
+        use_gpu=use_gpu
     )
 
     def progress_callback(current, total, message):
