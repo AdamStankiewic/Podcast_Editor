@@ -80,7 +80,10 @@ class VideoRenderService:
         4. Render video with speed adjustment + overlay
         5. Merge video + audio
         """
-        temp_dir = output_video.parent / "_render_temp"
+        # Use RAM Disk if configured for faster temp I/O
+        import os
+        temp_base = os.getenv("TEMP_PATH", str(output_video.parent))
+        temp_dir = Path(temp_base) / f"_render_{output_video.stem}"
         temp_dir.mkdir(exist_ok=True, parents=True)
 
         try:

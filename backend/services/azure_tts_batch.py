@@ -59,7 +59,10 @@ class AzureTTSBatchService:
             Path to generated WAV file
         """
         # Create temp directory for chunks
-        temp_dir = output_wav.parent / f"_temp_{output_wav.stem}"
+        # Use RAM Disk if configured for faster I/O
+        import os
+        temp_base = os.getenv("TEMP_PATH", str(output_wav.parent))
+        temp_dir = Path(temp_base) / f"_temp_{output_wav.stem}"
         temp_dir.mkdir(exist_ok=True, parents=True)
 
         try:
@@ -99,7 +102,8 @@ class AzureTTSBatchService:
             if progress_callback:
                 progress_callback(3, 4, "Merging audio chunks...")
 
-            raw_wav = output_wav.parent / f"{output_wav.stem}_raw.wav"
+            # Use temp directory for intermediate raw file
+            raw_wav = temp_dir / f"{output_wav.stem}_raw.wav"
             self._concat_wavs(temp_dir, raw_wav)
 
             # Step 4: Loudness normalization

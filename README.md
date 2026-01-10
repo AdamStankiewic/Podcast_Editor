@@ -435,17 +435,26 @@ WantedBy=multi-user.target
 
 ### Optymalizacje:
 
+**GPU Acceleration (NVENC):**
+```env
+# .env - Enabled by default
+USE_GPU_ENCODING=true  # 8x faster video rendering (NVIDIA/AMD)
+```
+
+**RAM Disk (Optional - 20% faster I/O):**
+```env
+# .env - For 32GB+ RAM systems
+TEMP_PATH=R:/podcast_temp  # Use RAM Disk for temp files
+
+# Setup: See docs/RAMDISK_SETUP.md
+# Requires: ImDisk Toolkit (Windows) or similar
+# Benefits: 20x faster temp file I/O, reduces SSD wear
+```
+
 **Faster translation:**
 ```python
 # translate.py - użyj mniejszego modelu
 OPENAI_MODEL = "gpt-3.5-turbo"  # 2x szybszy
-```
-
-**Faster rendering:**
-```bash
-# render.py - użyj hardware encoding
--c:v h264_nvenc  # NVIDIA GPU
--c:v h264_videotoolbox  # macOS
 ```
 
 **Parallel processing:**
