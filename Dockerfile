@@ -1,9 +1,14 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies including Azure Speech SDK requirements
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
+    ca-certificates \
+    libssl3 \
+    libasound2 \
+    libgcc-s1 \
+    libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

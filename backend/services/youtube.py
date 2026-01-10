@@ -135,7 +135,10 @@ class YouTubeService:
     def parse_vtt_to_text(vtt_path: Path) -> str:
         """
         Parse VTT subtitle file to plain text
-        Removes timestamps and formatting
+        Removes timestamps, formatting, and consecutive duplicates
+
+        YouTube auto-generated subtitles often have overlapping/duplicate lines
+        that need to be deduplicated to avoid text bloat
         """
         if not vtt_path.exists():
             return ""
@@ -144,6 +147,8 @@ class YouTubeService:
             lines = f.readlines()
 
         text_lines = []
+        last_line = None
+
         for line in lines:
             line = line.strip()
 
@@ -162,8 +167,10 @@ class YouTubeService:
             # Remove HTML tags
             line = re.sub(r'<[^>]+>', '', line)
 
-            if line:
+            # Skip if same as previous line (deduplication)
+            if line and line != last_line:
                 text_lines.append(line)
+                last_line = line
 
         return "\n".join(text_lines)
 

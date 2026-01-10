@@ -151,19 +151,36 @@ Odpowiedź (TYLKO streszczenie, po polsku):"""
         chunk_index: int,
         total_chunks: int
     ) -> str:
-        """Translate a single chunk with context"""
+        """Translate a single chunk with context and strict length matching"""
 
-        system_prompt = """Jesteś profesjonalnym lektorem podcastów historycznych. Tłumaczysz niemieckie nagrania na polski z zachowaniem:
-1. Stylu narracyjnego (spokojny, dokumentalny ton)
-2. WSZYSTKICH faktów, dat, liczb, nazw (bez zmyślania!)
-3. Podobnej długości tekstu (±10% znaków względem oryginału)
-4. Płynności narracji
+        target_length = len(chunk)
+        min_length = int(target_length * 0.85)
+        max_length = int(target_length * 1.15)
 
-WAŻNE:
-- NIE dodawaj żadnych informacji, których nie ma w oryginale
-- NIE zmieniaj dat, liczb, nazwisk
-- Zachowaj naturalny polski język narracyjny
-- Unikaj powtórzeń i sztucznych konstrukcji"""
+        system_prompt = f"""Jesteś profesjonalnym lektorem podcastów historycznych. Tłumaczysz niemieckie nagrania na polski.
+
+KRYTYCZNE WYMAGANIE - DŁUGOŚĆ TEKSTU:
+- Oryginalny tekst: {target_length} znaków
+- Twoje tłumaczenie MUSI mieć: {min_length}-{max_length} znaków
+- Jeśli tłumaczenie jest za krótkie, rozwiń szczegóły, dodaj opisowe przymiotniki, rozbuduj narrację
+- Jeśli jest za długie, skróć niepotrzebne słowa zachowując wszystkie fakty
+
+ZACHOWAJ:
+1. WSZYSTKIE fakty, daty, liczby, nazwy (bez zmyślania nowych!)
+2. Spokojny, dokumentalny ton narracji
+3. Płynność i naturalność polskiego języka
+4. Chronologię i logikę wydarzeń
+
+TECHNIKA ROZSZERZANIA (gdy tekst za krótki):
+- Dodaj opisowe przymiotniki (np. "bitwa" → "zaciętą bitwą", "król" → "wpływowy król")
+- Rozwiń skróty myślowe (np. "wtedy" → "w tamtym burzliwym okresie")
+- Użyj pełniejszych fraz (np. "w 1945" → "w pamiętnym roku 1945")
+- Opisz kontekst bez dodawania faktów (np. "Hitler" → "niemiecki dyktator Hitler")
+
+NIGDY NIE:
+- Dodawaj faktów, których nie ma w oryginale
+- Zmieniaj dat, liczb, nazwisk
+- Twórz sztucznych powtórzeń"""
 
         # Build context
         context_parts = [f"KONTEKST GLOBALNY:\n{global_context}"]
@@ -172,33 +189,92 @@ WAŻNE:
             context_parts.append(f"\nKONIEC POPRZEDNIEGO FRAGMENTU:\n{previous_ending}")
 
         context_parts.append(f"\n\nTo jest fragment {chunk_index + 1} z {total_chunks}.")
-        context_parts.append(f"\nTEKST DO TŁUMACZENIA ({len(chunk)} znaków):\n{chunk}")
+        context_parts.append(f"\nTEKST DO TŁUMACZENIA ({len(chunk)} znaków, cel: {min_length}-{max_length} znaków):\n{chunk}")
 
         user_prompt = "\n".join(context_parts)
-        user_prompt += "\n\nOdpowiedź (TYLKO polskie tłumaczenie, bez komentarzy):"
+        user_prompt += f"\n\nOdpowiedź (polskie tłumaczenie o długości {min_length}-{max_length} znaków, bez komentarzy):"
+
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.5,  # Slightly higher for natural expansion
+                    max_tokens=5000
+                )
+
+                translation = response.choices[0].message.content.strip()
+                ratio = len(translation) / len(chunk)
+
+                # If length is acceptable, return
+                if min_length <= len(translation) <= max_length:
+                    print(f"✓ Chunk {chunk_index+1} length: {len(translation)}/{target_length} chars (ratio: {ratio:.2f})")
+                    return translation
+
+                # If too short and we have retries left, ask GPT to expand
+                if len(translation) < min_length and attempt < max_retries - 1:
+                    print(f"⚠ Chunk {chunk_index+1} too short: {len(translation)}/{min_length} chars (ratio: {ratio:.2f}), expanding...")
+                    translation = self._expand_translation(translation, chunk, min_length, max_length)
+
+                    # Check again after expansion
+                    ratio = len(translation) / len(chunk)
+                    if min_length <= len(translation) <= max_length:
+                        print(f"✓ After expansion: {len(translation)}/{target_length} chars (ratio: {ratio:.2f})")
+                        return translation
+
+                # Last attempt or within acceptable range - warn but accept
+                print(f"⚠ Chunk {chunk_index+1} length ratio: {ratio:.2f} (original: {len(chunk)}, translated: {len(translation)})")
+                return translation
+
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise RuntimeError(f"Translation failed for chunk {chunk_index+1}: {e}")
+                print(f"Retry {attempt+1}/{max_retries} for chunk {chunk_index+1}: {e}")
+
+    def _expand_translation(self, translation: str, original: str, min_length: int, max_length: int) -> str:
+        """Expand translation to match target length without adding facts"""
+        prompt = f"""Rozbuduj poniższe tłumaczenie, aby osiągnąć długość {min_length}-{max_length} znaków (obecnie: {len(translation)} znaków).
+
+DOZWOLONE TECHNIKI:
+- Opisowe przymiotniki (np. "król" → "potężny król")
+- Pełniejsze frazy (np. "wtedy" → "w tamtym okresie")
+- Kontekst bez faktów (np. "Hitler" → "niemiecki dyktator Hitler")
+- Rozwinięcia skrótów myślowych
+
+ZABRONIONE:
+- Dodawanie nowych faktów, dat, nazwisk
+- Zmiana treści merytorycznej
+- Sztuczne powtórzenia
+
+ORYGINALNY NIEMIECKI (dla kontekstu):
+{original}
+
+AKTUALNE TŁUMACZENIE:
+{translation}
+
+ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
 
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": "Jesteś redaktorem rozszerzającym teksty bez dodawania faktów."},
+                    {"role": "user", "content": prompt}
                 ],
-                temperature=0.4,  # Slightly creative but faithful
-                max_tokens=4000
+                temperature=0.5,
+                max_tokens=5000
             )
 
-            translation = response.choices[0].message.content.strip()
-
-            # Check length ratio (warn if too different)
-            ratio = len(translation) / len(chunk)
-            if ratio < 0.7 or ratio > 1.4:
-                print(f"Warning: Chunk {chunk_index+1} length ratio: {ratio:.2f} (original: {len(chunk)}, translated: {len(translation)})")
-
-            return translation
+            expanded = response.choices[0].message.content.strip()
+            return expanded
 
         except Exception as e:
-            raise RuntimeError(f"Translation failed for chunk {chunk_index+1}: {e}")
+            print(f"Warning: Expansion failed: {e}, using original translation")
+            return translation
 
     def _extract_ending_sentences(self, text: str, count: int = 2) -> str:
         """Extract last N sentences from text"""

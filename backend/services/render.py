@@ -165,16 +165,21 @@ class VideoRenderService:
         """
         Calculate speed ratio to match video to audio length
         Returns: ratio where 1.0 = no change, 2.0 = 2x speed, 0.5 = 0.5x speed
+
+        Note: Wider range (0.5x to 3.5x) to accommodate translation length variations
         """
         ratio = audio_duration / video_duration
 
-        # Clamp to reasonable range (0.5x to 2.0x)
+        # Clamp to reasonable range (0.5x to 3.5x)
+        # Increased upper limit from 2.0x to handle shorter translations
         if ratio < 0.5:
             print(f"Warning: Speed ratio {ratio:.2f} is very slow, clamping to 0.5x")
             ratio = 0.5
-        elif ratio > 2.0:
-            print(f"Warning: Speed ratio {ratio:.2f} is very fast, clamping to 2.0x")
-            ratio = 2.0
+        elif ratio > 3.5:
+            print(f"Warning: Speed ratio {ratio:.2f} is very fast, clamping to 3.5x")
+            ratio = 3.5
+        elif ratio > 1.5:
+            print(f"Info: Speed ratio {ratio:.2f}x - video will be noticeably faster")
 
         return ratio
 
