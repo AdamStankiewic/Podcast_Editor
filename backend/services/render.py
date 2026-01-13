@@ -221,13 +221,13 @@ class VideoRenderService:
             # - Music is background (index 1)
             # - Music gets compressed when TTS has signal
             filter_complex = (
-                # Lower music base volume to -20dB
-                "[1:a]volume=-20dB[music_low];"
+                # Lower music base volume to -24dB (quieter than before)
+                "[1:a]volume=-24dB[music_low];"
                 # Apply sidechain compression (music ducks under voice)
                 "[music_low][0:a]sidechaincompress="
                 "threshold=0.02:ratio=6:attack=5:release=250:makeup=2[bg];"
-                # Mix voice + ducked music
-                "[0:a][bg]amix=inputs=2:duration=longest:weights=1.0 0.4[out]"
+                # Mix voice + ducked music (reduced music weight from 0.4 to 0.15)
+                "[0:a][bg]amix=inputs=2:duration=longest:weights=1.0 0.15[out]"
             )
 
             subprocess.run([
@@ -273,12 +273,22 @@ class VideoRenderService:
         if has_overlay:
             try:
                 # Two-input filter: video + overlay
+                # Use scale2ref to scale overlay to match video dimensions (fullscreen)
+                # This preserves PNG transparency (alpha channel)
+                filter_complex = (
+                    # Scale overlay to exact video size
+                    "[1:v][0:v]scale2ref[overlay_scaled][video_ref];"
+                    # Apply speed adjustment to video
+                    f"[video_ref]setpts={setpts_value}*PTS[v];"
+                    # Overlay scaled PNG on top (fullscreen, preserves transparency)
+                    "[v][overlay_scaled]overlay=0:0:format=auto"
+                )
+
                 subprocess.run([
                     "ffmpeg", "-y",
                     "-i", str(input_video),
                     "-i", str(self.overlay_path),
-                    "-filter_complex",
-                    f"[0:v]setpts={setpts_value}*PTS[v];[v][1:v]overlay=0:0:format=auto",
+                    "-filter_complex", filter_complex,
                     "-an",  # Remove audio
                     "-c:v", self.encoder,
                     "-preset", self.preset,
