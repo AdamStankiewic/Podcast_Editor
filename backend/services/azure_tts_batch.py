@@ -239,30 +239,35 @@ class AzureTTSBatchService:
             audio_config=audio_config
         )
 
-        for attempt in range(1, self.max_retries + 1):
-            result = synth.speak_ssml_async(ssml).get()
+        try:
+            for attempt in range(1, self.max_retries + 1):
+                result = synth.speak_ssml_async(ssml).get()
 
-            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-                print(f"✓ Chunk {chunk_index}/{total_chunks}")
-                return
+                if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                    print(f"✓ Chunk {chunk_index}/{total_chunks}")
+                    return
 
-            if result.reason == speechsdk.ResultReason.Canceled:
-                details = result.cancellation_details
-                print(f"✗ Chunk {chunk_index} attempt {attempt}/{self.max_retries} CANCELED")
-                print(f"  Reason: {details.reason}")
-                print(f"  Details: {details.error_details}")
+                if result.reason == speechsdk.ResultReason.Canceled:
+                    details = result.cancellation_details
+                    print(f"✗ Chunk {chunk_index} attempt {attempt}/{self.max_retries} CANCELED")
+                    print(f"  Reason: {details.reason}")
+                    print(f"  Details: {details.error_details}")
 
-                # Remove partial file
-                if output_wav.exists():
-                    output_wav.unlink()
+                    if attempt < self.max_retries:
+                        time.sleep(self.retry_backoff_sec * attempt)
+                        continue
 
-                if attempt < self.max_retries:
-                    time.sleep(self.retry_backoff_sec * attempt)
-                    continue
-
-                raise RuntimeError(f"Failed to synthesize chunk {chunk_index} after {self.max_retries} attempts")
+                    raise RuntimeError(f"Failed to synthesize chunk {chunk_index} after {self.max_retries} attempts")
 
             raise RuntimeError(f"Unexpected result reason: {result.reason}")
+        finally:
+            # CRITICAL: Close synthesizer to release file handles (Windows file locking fix)
+            # Must be done before any file cleanup operations
+            del synth
+            del audio_config
+            import gc
+            gc.collect()  # Force garbage collection to release file handles
+            time.sleep(0.1)  # Give Windows time to release handles
 
     def _concat_wavs(self, temp_dir: Path, output_wav: Path):
         """Concatenate WAV files using ffmpeg"""
