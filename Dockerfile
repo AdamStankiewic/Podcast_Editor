@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11
 
 # Install system dependencies including Azure Speech SDK requirements
 # Azure Speech SDK needs: OpenSSL, ALSA, C++ runtime, threading, atomic ops
