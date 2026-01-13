@@ -5,6 +5,8 @@ Generates long-form audio using Azure Neural TTS with chunking and merging
 import os
 import re
 import time
+import gc
+import shutil
 import hashlib
 import subprocess
 from pathlib import Path
@@ -60,7 +62,6 @@ class AzureTTSBatchService:
         """
         # Create temp directory for chunks
         # Use RAM Disk if configured for faster I/O
-        import os
         temp_base = os.getenv("TEMP_PATH", str(output_wav.parent))
         temp_dir = Path(temp_base) / f"_temp_{output_wav.stem}"
         temp_dir.mkdir(exist_ok=True, parents=True)
@@ -114,9 +115,6 @@ class AzureTTSBatchService:
 
             # Cleanup temp files
             # Note: Windows may hold file handles, use retry logic
-            import shutil
-            import time
-
             # Delete raw file first (if separate from output)
             if raw_wav.exists() and raw_wav != output_wav:
                 try:
@@ -139,7 +137,6 @@ class AzureTTSBatchService:
 
         except Exception as e:
             # Cleanup on error (best effort)
-            import shutil
             if temp_dir.exists():
                 try:
                     shutil.rmtree(temp_dir)
@@ -265,7 +262,6 @@ class AzureTTSBatchService:
             # Must be done before any file cleanup operations
             del synth
             del audio_config
-            import gc
             gc.collect()  # Force garbage collection to release file handles
             time.sleep(0.1)  # Give Windows time to release handles
 
