@@ -27,18 +27,18 @@ def test_azure_config():
     print("TEST 2: Checking Azure credentials")
     print("=" * 60)
 
-    key = os.getenv("AZURE_SPEECH_KEY")
-    region = os.getenv("AZURE_SPEECH_REGION")
+    key = os.getenv("SPEECH_KEY")
+    region = os.getenv("SPEECH_REGION")
 
     if not key:
-        print("✗ AZURE_SPEECH_KEY not set in environment")
+        print("✗ SPEECH_KEY not set in environment")
         return False
     if not region:
-        print("✗ AZURE_SPEECH_REGION not set in environment")
+        print("✗ SPEECH_REGION not set in environment")
         return False
 
-    print(f"✓ AZURE_SPEECH_KEY: {'*' * 8}{key[-4:]}")
-    print(f"✓ AZURE_SPEECH_REGION: {region}")
+    print(f"✓ SPEECH_KEY: {'*' * 8}{key[-4:]}")
+    print(f"✓ SPEECH_REGION: {region}")
     return True
 
 def test_azure_synthesizer():
@@ -50,8 +50,8 @@ def test_azure_synthesizer():
     try:
         import azure.cognitiveservices.speech as speechsdk
 
-        key = os.getenv("AZURE_SPEECH_KEY")
-        region = os.getenv("AZURE_SPEECH_REGION")
+        key = os.getenv("SPEECH_KEY")
+        region = os.getenv("SPEECH_REGION")
 
         speech_config = speechsdk.SpeechConfig(
             subscription=key,
@@ -86,8 +86,8 @@ def test_simple_synthesis():
     try:
         import azure.cognitiveservices.speech as speechsdk
 
-        key = os.getenv("AZURE_SPEECH_KEY")
-        region = os.getenv("AZURE_SPEECH_REGION")
+        key = os.getenv("SPEECH_KEY")
+        region = os.getenv("SPEECH_REGION")
 
         speech_config = speechsdk.SpeechConfig(
             subscription=key,
@@ -152,7 +152,7 @@ def main():
 
     if not results[-1][1]:
         print("\n❌ Cannot proceed - Azure credentials not configured")
-        print("Make sure .env file has AZURE_SPEECH_KEY and AZURE_SPEECH_REGION")
+        print("Make sure .env file has SPEECH_KEY and SPEECH_REGION")
         sys.exit(1)
 
     # Test 3: Synthesizer init
