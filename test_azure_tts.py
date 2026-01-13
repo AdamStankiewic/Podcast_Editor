@@ -59,13 +59,11 @@ def test_azure_synthesizer():
         )
         speech_config.speech_synthesis_voice_name = "en-GB-OllieMultilingualNeural"
 
-        # Use null output (don't actually save audio)
-        audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=False)
-
+        # Use null audio output (synthesize to memory, don't save)
         print("Creating synthesizer...")
         synthesizer = speechsdk.SpeechSynthesizer(
             speech_config=speech_config,
-            audio_config=None  # No output
+            audio_config=None  # None = synthesize to result object
         )
 
         print("✓ Synthesizer created successfully")
