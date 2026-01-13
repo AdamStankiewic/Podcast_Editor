@@ -208,6 +208,79 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
+@app.get("/api/history")
+async def get_url_history():
+    """
+    Get history of processed URLs
+
+    Returns:
+        List of all processed URLs with job IDs and timestamps
+    """
+    from backend.services.url_history import get_url_history
+    history = get_url_history()
+
+    return {
+        "urls": history.get_all_urls(),
+        "stats": history.get_stats()
+    }
+
+
+@app.get("/api/history/check")
+async def check_url(url: str):
+    """
+    Check if URL was already processed
+
+    Query params:
+        url: YouTube URL to check
+
+    Returns:
+        {
+            "processed": bool,
+            "info": {...} if processed
+        }
+    """
+    from backend.services.url_history import get_url_history
+    history = get_url_history()
+
+    info = history.get_url_info(url)
+    return {
+        "processed": info is not None,
+        "info": info
+    }
+
+
+@app.get("/api/cache/stats")
+async def get_cache_stats():
+    """
+    Get video cache statistics
+
+    Returns:
+        Cache stats (video count, total size, etc.)
+    """
+    from backend.services.video_cache import get_video_cache
+    cache = get_video_cache()
+
+    return cache.get_cache_stats()
+
+
+@app.delete("/api/cache/{video_id}")
+async def clear_cache_entry(video_id: str):
+    """
+    Remove specific video from cache
+
+    Path params:
+        video_id: YouTube video ID
+    """
+    from backend.services.video_cache import get_video_cache
+    cache = get_video_cache()
+
+    if not cache.is_cached(video_id):
+        raise HTTPException(status_code=404, detail=f"Video {video_id} not in cache")
+
+    cache.clear_cache(video_id)
+    return {"message": f"Video {video_id} removed from cache"}
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
