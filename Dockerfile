@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
 # Install system dependencies including Azure Speech SDK requirements
+# Azure Speech SDK needs: OpenSSL, ALSA, C++ runtime, threading, atomic ops
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
@@ -9,6 +10,10 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libgcc-s1 \
     libstdc++6 \
+    libgomp1 \
+    libatomic1 \
+    libc6 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
