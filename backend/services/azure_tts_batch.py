@@ -113,18 +113,38 @@ class AzureTTSBatchService:
             self._normalize_loudness(raw_wav, output_wav)
 
             # Cleanup temp files
+            # Note: Windows may hold file handles, use retry logic
             import shutil
-            shutil.rmtree(temp_dir)
+            import time
+
+            # Delete raw file first (if separate from output)
             if raw_wav.exists() and raw_wav != output_wav:
-                raw_wav.unlink()
+                try:
+                    raw_wav.unlink()
+                except Exception:
+                    pass  # Ignore cleanup errors
+
+            # Retry temp directory deletion (Windows file handle issue)
+            for retry in range(3):
+                try:
+                    shutil.rmtree(temp_dir)
+                    break
+                except PermissionError:
+                    if retry < 2:
+                        time.sleep(0.5)  # Wait for file handles to close
+                    else:
+                        print(f"Warning: Could not delete temp dir {temp_dir} (files may be in use)")
 
             return output_wav
 
         except Exception as e:
-            # Cleanup on error
+            # Cleanup on error (best effort)
             import shutil
             if temp_dir.exists():
-                shutil.rmtree(temp_dir)
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception:
+                    pass  # Ignore cleanup errors on failure
             raise RuntimeError(f"Azure TTS generation failed: {e}")
 
     def _normalize_text(self, text: str) -> str:

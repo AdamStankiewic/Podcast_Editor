@@ -3,6 +3,11 @@ Celery configuration for background task processing
 """
 import os
 from celery import Celery
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+# This is critical for local worker to access Azure credentials
+load_dotenv()
 
 # Get Redis URL from environment
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

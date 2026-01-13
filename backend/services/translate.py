@@ -288,7 +288,14 @@ ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
         """
         Editorial pass to remove repetitions and improve flow
         WITHOUT changing facts
+
+        Note: Skipped if text is too long (>40k chars) to avoid max_tokens limit
         """
+        # Skip editorial pass for very long texts (exceeds GPT-4o-mini 16k token limit)
+        if len(text) > 40000:
+            print(f"Info: Skipping editorial pass (text too long: {len(text)} chars)")
+            return text
+
         prompt = f"""Jesteś redaktorem tekstów. Popraw poniższy tekst usuwając:
 - Powtórzenia tych samych informacji
 - Nienaturalne konstrukcje zdaniowe
@@ -306,6 +313,11 @@ TEKST:
 POPRAWIONY TEKST (bez komentarzy):"""
 
         try:
+            # Calculate safe max_tokens (GPT-4o-mini limit: 16384)
+            # Assume input uses ~len(text)/3 tokens, leave room for output
+            estimated_input_tokens = len(text) // 3
+            safe_max_tokens = min(16000, estimated_input_tokens + 2000)
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -313,7 +325,7 @@ POPRAWIONY TEKST (bez komentarzy):"""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=len(text) + 1000
+                max_tokens=safe_max_tokens
             )
 
             return response.choices[0].message.content.strip()
