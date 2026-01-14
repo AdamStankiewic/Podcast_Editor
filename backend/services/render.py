@@ -251,6 +251,10 @@ class VideoRenderService:
         - Overlay PNG frame
         - Remove original audio
         """
+        print(f"Processing video: {input_video}")
+        print(f"Output video: {output_video}")
+        print(f"Speed ratio: {speed_ratio:.3f}x")
+
         # Calculate setpts value (inverse of speed ratio)
         # speed 2.0x = setpts 0.5 (PTS/2)
         # speed 0.5x = setpts 2.0 (PTS*2)
@@ -267,8 +271,10 @@ class VideoRenderService:
             # Overlay syntax: [video][overlay]overlay=x:y
             # We'll do this separately since it needs two inputs
             has_overlay = True
+            print(f"Using overlay: {self.overlay_path}")
         else:
             has_overlay = False
+            print(f"No overlay found at {self.overlay_path}, rendering without overlay")
 
         if has_overlay:
             try:
@@ -300,7 +306,7 @@ class VideoRenderService:
         else:
             try:
                 # Simple speed adjustment without overlay
-                subprocess.run([
+                cmd = [
                     "ffmpeg", "-y",
                     "-i", str(input_video),
                     "-vf", f"setpts={setpts_value}*PTS",
@@ -309,14 +315,29 @@ class VideoRenderService:
                     "-preset", self.preset,
                     "-crf", "23" if self.encoder == "libx264" else "20",  # Lower CRF for NVENC
                     str(output_video)
-                ], check=True, capture_output=True)
+                ]
+
+                print(f"Video processing command (no overlay): {' '.join(cmd)}")
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+                if result.stderr:
+                    print(f"FFmpeg video processing stderr: {result.stderr[-500:]}")  # Last 500 chars
+
+                print(f"Video processed successfully: {output_video} (exists: {Path(output_video).exists()})")
+
             except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Video processing failed: {e.stderr.decode() if e.stderr else 'unknown'}")
+                error_msg = e.stderr.decode() if hasattr(e.stderr, 'decode') else str(e.stderr)
+                print(f"VIDEO PROCESSING ERROR: {error_msg}")
+                raise RuntimeError(f"Video processing failed: {error_msg}")
 
     def _merge_video_audio(self, video_file: Path, audio_file: Path, output_file: Path):
         """Merge processed video with mixed audio"""
         try:
-            subprocess.run([
+            # Debug: Check if video file has video stream
+            print(f"Merging video: {video_file} (exists: {video_file.exists()})")
+            print(f"Merging audio: {audio_file} (exists: {audio_file.exists()})")
+
+            cmd = [
                 "ffmpeg", "-y",
                 "-i", str(video_file),
                 "-i", str(audio_file),
@@ -325,7 +346,15 @@ class VideoRenderService:
                 "-b:a", "192k",
                 "-shortest",  # End when shortest stream ends
                 str(output_file)
-            ], check=True, capture_output=True)
+            ]
+
+            print(f"Merge command: {' '.join(cmd)}")
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+            if result.stderr:
+                print(f"FFmpeg merge stderr: {result.stderr}")
 
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Video/audio merge failed: {e.stderr.decode() if e.stderr else 'unknown'}")
+            error_msg = e.stderr.decode() if hasattr(e.stderr, 'decode') else str(e.stderr)
+            print(f"MERGE ERROR: {error_msg}")
+            raise RuntimeError(f"Video/audio merge failed: {error_msg}")

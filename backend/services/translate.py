@@ -171,6 +171,12 @@ ZACHOWAJ:
 3. Płynność i naturalność polskiego języka
 4. Chronologię i logikę wydarzeń
 
+LICZBY I DATY - PISZ SŁOWNIE:
+- Lata: "1945" → "tysiąc dziewięćset czterdzieści pięć" lub "rok tysiąc dziewięćset czterdzieści pięć"
+- Liczby: "500 żołnierzy" → "pięćset żołnierzy"
+- Daty: "15 maja 1945" → "piętnastego maja tysiąc dziewięćset czterdzieści pięć"
+- Wyjątki: Jeśli w oryginalnym tekście liczba jest cyfrą (np. w nazwie "Grupa 47"), zostaw cyfrę
+
 TECHNIKA ROZSZERZANIA (gdy tekst za krótki):
 - Dodaj opisowe przymiotniki (np. "bitwa" → "zaciętą bitwą", "król" → "wpływowy król")
 - Rozwiń skróty myślowe (np. "wtedy" → "w tamtym burzliwym okresie")
