@@ -161,6 +161,32 @@ class VideoRenderService:
         except Exception as e:
             raise RuntimeError(f"Failed to get duration for {media_file}: {e}")
 
+    def _verify_video_stream(self, video_file: Path) -> bool:
+        """Verify that video file has a valid video stream"""
+        try:
+            result = subprocess.run([
+                "ffprobe",
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_type",
+                "-of", "json",
+                str(video_file)
+            ], capture_output=True, text=True, check=True)
+
+            data = json.loads(result.stdout)
+            has_video = len(data.get("streams", [])) > 0
+
+            if has_video:
+                print(f"✓ Video stream verified in {video_file.name}")
+            else:
+                print(f"✗ No video stream found in {video_file.name}")
+
+            return has_video
+
+        except Exception as e:
+            print(f"Warning: Failed to verify video stream: {e}")
+            return False
+
     def _calculate_speed_ratio(self, video_duration: float, audio_duration: float) -> float:
         """
         Calculate speed ratio to match video to audio length
@@ -290,7 +316,7 @@ class VideoRenderService:
                     "[v][overlay_scaled]overlay=0:0:format=auto"
                 )
 
-                subprocess.run([
+                cmd = [
                     "ffmpeg", "-y",
                     "-i", str(input_video),
                     "-i", str(self.overlay_path),
@@ -300,10 +326,34 @@ class VideoRenderService:
                     "-preset", self.preset,
                     "-crf", "23" if self.encoder == "libx264" else "20",  # Lower CRF for NVENC
                     str(output_video)
-                ], check=True, capture_output=True)
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Video processing failed: {e.stderr.decode() if e.stderr else 'unknown'}")
-        else:
+                ]
+
+                print(f"Video processing command (with overlay): {' '.join(cmd)}")
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+                if result.stderr:
+                    print(f"FFmpeg overlay processing stderr: {result.stderr[-1000:]}")  # Last 1000 chars
+
+                # Verify video stream exists in output
+                if not self._verify_video_stream(output_video):
+                    print(f"ERROR: video_processed.mp4 has no video stream! Retrying without overlay...")
+                    raise RuntimeError("Video stream missing after overlay processing")
+
+                print(f"Video processed with overlay successfully: {output_video}")
+
+            except (subprocess.CalledProcessError, RuntimeError) as e:
+                error_msg = str(e)
+                if hasattr(e, 'stderr') and e.stderr:
+                    error_msg = e.stderr.decode() if hasattr(e.stderr, 'decode') else str(e.stderr)
+
+                print(f"OVERLAY PROCESSING FAILED: {error_msg}")
+                print(f"Falling back to video without overlay...")
+
+                # Fallback: render without overlay
+                has_overlay = False
+
+        # If overlay failed or not used, render without overlay
+        if not has_overlay:
             try:
                 # Simple speed adjustment without overlay
                 cmd = [
