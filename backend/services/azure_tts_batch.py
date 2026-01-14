@@ -34,13 +34,26 @@ class AzureTTSBatchService:
         # Azure configuration
         self.max_chars = 3000  # Chunk size for SSML
         self.max_retries = 5
-        self.retry_backoff_sec = 5
+        self.retry_backoff_sec = 10  # Increased from 5 to 10 seconds
         self.min_valid_wav_bytes = 200_000
+        self.chunk_delay_sec = 0.5  # Delay between chunks to avoid overwhelming Azure
 
         # Initialize speech config
         self.speech_config = speechsdk.SpeechConfig(
             subscription=self.speech_key,
             region=self.speech_region
+        )
+
+        # Set longer timeouts for Azure SDK (helps with slow synthesis)
+        # Connection timeout: 30 seconds
+        # Synthesis timeout: 120 seconds (2 minutes per chunk)
+        self.speech_config.set_property(
+            speechsdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs,
+            "30000"  # 30 seconds for initial connection
+        )
+        self.speech_config.set_property(
+            speechsdk.PropertyId.SpeechServiceConnection_EndSilenceTimeoutMs,
+            "120000"  # 120 seconds for synthesis timeout
         )
 
     def generate_audio(
@@ -94,6 +107,10 @@ class AzureTTSBatchService:
                     progress_callback(2, 4, f"Generating chunk {i}/{len(chunks)}...")
 
                 self._synthesize_chunk(ssml, part_wav, chunk_index=i, total_chunks=len(chunks))
+
+                # Add small delay between chunks to avoid overwhelming Azure API
+                if i < len(chunks):  # Don't delay after last chunk
+                    time.sleep(self.chunk_delay_sec)
 
                 # Delay between requests to avoid throttling
                 if i < len(chunks):
