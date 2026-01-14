@@ -297,10 +297,31 @@ class VideoRenderService:
             # Overlay syntax: [video][overlay]overlay=x:y
             # We'll do this separately since it needs two inputs
             has_overlay = True
+            overlay_size = self.overlay_path.stat().st_size
             print(f"Using overlay: {self.overlay_path}")
+            print(f"Overlay file size: {overlay_size / 1024:.2f} KB")
+
+            # Get overlay dimensions using ffprobe
+            try:
+                probe_result = subprocess.run([
+                    "ffprobe",
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height,pix_fmt",
+                    "-of", "json",
+                    str(self.overlay_path)
+                ], capture_output=True, text=True, check=True, timeout=5)
+
+                overlay_info = json.loads(probe_result.stdout)
+                if overlay_info.get("streams"):
+                    stream = overlay_info["streams"][0]
+                    print(f"Overlay dimensions: {stream.get('width')}x{stream.get('height')}, format: {stream.get('pix_fmt')}")
+            except Exception as e:
+                print(f"Warning: Could not probe overlay dimensions: {e}")
         else:
             has_overlay = False
-            print(f"No overlay found at {self.overlay_path}, rendering without overlay")
+            print(f"No overlay found at {self.overlay_path} (absolute: {self.overlay_path.absolute()})")
+            print(f"Rendering without overlay")
 
         if has_overlay:
             try:
@@ -329,17 +350,25 @@ class VideoRenderService:
                 ]
 
                 print(f"Video processing command (with overlay): {' '.join(cmd)}")
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True)
 
+                # Show FFmpeg output (both stdout and stderr)
+                if result.stdout:
+                    print(f"FFmpeg overlay stdout: {result.stdout[-500:]}")
                 if result.stderr:
-                    print(f"FFmpeg overlay processing stderr: {result.stderr[-1000:]}")  # Last 1000 chars
+                    print(f"FFmpeg overlay stderr (last 2000 chars): {result.stderr[-2000:]}")
+
+                # Check if FFmpeg succeeded
+                if result.returncode != 0:
+                    print(f"FFmpeg overlay processing failed with return code {result.returncode}")
+                    raise RuntimeError(f"FFmpeg failed: {result.stderr[-500:]}")
 
                 # Verify video stream exists in output
                 if not self._verify_video_stream(output_video):
                     print(f"ERROR: video_processed.mp4 has no video stream! Retrying without overlay...")
                     raise RuntimeError("Video stream missing after overlay processing")
 
-                print(f"Video processed with overlay successfully: {output_video}")
+                print(f"✓ Video processed with overlay successfully: {output_video}")
 
             except (subprocess.CalledProcessError, RuntimeError) as e:
                 error_msg = str(e)
