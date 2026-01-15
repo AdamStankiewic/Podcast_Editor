@@ -325,16 +325,38 @@ class VideoRenderService:
 
         if has_overlay:
             try:
+                # Get video dimensions for overlay scaling
+                video_width = 2560  # Default
+                video_height = 1440  # Default
+
+                try:
+                    probe_result = subprocess.run([
+                        "ffprobe",
+                        "-v", "error",
+                        "-select_streams", "v:0",
+                        "-show_entries", "stream=width,height",
+                        "-of", "json",
+                        str(input_video)
+                    ], capture_output=True, text=True, check=True, timeout=5)
+
+                    video_info = json.loads(probe_result.stdout)
+                    if video_info.get("streams"):
+                        video_width = video_info["streams"][0].get("width", 2560)
+                        video_height = video_info["streams"][0].get("height", 1440)
+                        print(f"Video dimensions: {video_width}x{video_height}")
+                except Exception as e:
+                    print(f"Warning: Could not probe video dimensions: {e}, using defaults")
+
                 # Two-input filter: video + overlay
-                # Use scale2ref to scale overlay to match video dimensions (fullscreen)
-                # This preserves PNG transparency (alpha channel)
+                # NEW: Use simple scale instead of deprecated scale2ref
+                # This works with FFmpeg 2025
                 filter_complex = (
-                    # Scale overlay to exact video size
-                    "[1:v][0:v]scale2ref[overlay_scaled][video_ref];"
                     # Apply speed adjustment to video
-                    f"[video_ref]setpts={setpts_value}*PTS[v];"
-                    # Overlay scaled PNG on top (fullscreen, preserves transparency)
-                    "[v][overlay_scaled]overlay=0:0:format=auto"
+                    f"[0:v]setpts={setpts_value}*PTS[v];"
+                    # Scale overlay to match video dimensions exactly
+                    f"[1:v]scale={video_width}:{video_height}:force_original_aspect_ratio=decrease[overlay_scaled];"
+                    # Overlay scaled PNG on top (centered, preserves transparency)
+                    f"[v][overlay_scaled]overlay=(W-w)/2:(H-h)/2:format=auto"
                 )
 
                 cmd = [
