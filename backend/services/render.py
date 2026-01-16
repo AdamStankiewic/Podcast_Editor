@@ -350,18 +350,22 @@ class VideoRenderService:
                 # Two-input filter: video + overlay
                 # NEW: Use simple scale instead of deprecated scale2ref
                 # This works with FFmpeg 2025
+                # Strategy: Use overlay at original size, positioned at top-left (0:0)
                 filter_complex = (
                     # Apply speed adjustment to video
                     f"[0:v]setpts={setpts_value}*PTS[v];"
-                    # Scale overlay to match video dimensions exactly
-                    f"[1:v]scale={video_width}:{video_height}:force_original_aspect_ratio=decrease[overlay_scaled];"
-                    # Overlay scaled PNG on top (centered, preserves transparency)
-                    f"[v][overlay_scaled]overlay=(W-w)/2:(H-h)/2:format=auto"
+                    # Overlay PNG on top at position 0:0 (top-left corner)
+                    # shortest=1 means overlay ends when shortest input ends
+                    # format=auto automatically handles alpha channel (RGBA)
+                    f"[v][1:v]overlay=0:0:format=auto:shortest=1"
                 )
+
+                print(f"Using filter: {filter_complex}")
 
                 cmd = [
                     "ffmpeg", "-y",
                     "-i", str(input_video),
+                    "-loop", "1",  # Loop the overlay image
                     "-i", str(self.overlay_path),
                     "-filter_complex", filter_complex,
                     "-an",  # Remove audio
