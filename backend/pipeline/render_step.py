@@ -26,7 +26,20 @@ def render_final_video(
     storage = get_storage()
 
     original_video_path = storage.get_artifact_path(job_id, "original.mp4")
-    tts_audio_path = storage.get_artifact_path(job_id, "tts.wav")
+
+    # Prefer studio-processed audio, fallback to raw TTS
+    tts_audio_studio_path = storage.get_artifact_path(job_id, "tts_studio.wav")
+    tts_audio_raw_path = storage.get_artifact_path(job_id, "tts.wav")
+
+    if tts_audio_studio_path.exists():
+        tts_audio_path = tts_audio_studio_path
+        storage.add_log(job_id, "Using studio-processed audio for rendering", "INFO")
+    elif tts_audio_raw_path.exists():
+        tts_audio_path = tts_audio_raw_path
+        storage.add_log(job_id, "Using raw TTS audio for rendering (studio processing not available)", "INFO")
+    else:
+        tts_audio_path = tts_audio_raw_path  # Will fail later with better error
+
     final_video_path = storage.get_artifact_path(job_id, "final.mp4")
 
     # Check if already rendered
