@@ -175,26 +175,40 @@ class AudioPostProcessingService:
         """
         try:
             import torch
+            import torchaudio
             from resemble_enhance.enhancer.inference import enhance
 
             # Set device (CUDA if available, else CPU)
             device = "cuda" if torch.cuda.is_available() else "cpu"
             print(f"Using device for AI enhancement: {device}")
 
+            # Load audio
+            dwav, sr = torchaudio.load(str(input_wav))
+
+            # Convert to mono if needed (resemble-enhance works best with mono)
+            if dwav.shape[0] > 1:
+                dwav = torch.mean(dwav, dim=0, keepdim=True)
+
+            print(f"Processing audio: {dwav.shape}, sample rate: {sr}")
+
             # Run enhancement
-            # solver: Diffusion solver (midpoint is good balance of quality/speed)
-            # nfe: Number of function evaluations (higher = better quality but slower)
-            # tau: Denoising strength (0.5 = balanced)
-            enhance(
-                model_path=None,  # Auto-download model
-                input_path=str(input_wav),
-                output_path=str(output_wav),
-                solver="midpoint",
-                nfe=128,  # Maximum quality (32=fast, 64=balanced, 128=best quality)
-                tau=0.5,  # Denoising strength
-                denoising=True,
-                device=device
+            # Parameters:
+            # - nfe: Number of function evaluations (higher = better quality, 128 = max)
+            # - solver: ODE solver ('Midpoint' is good balance of quality/speed)
+            # - lambd: 0.9 for denoising, 0.1 for enhancement only
+            # - tau: Prior temperature (0.5 = balanced)
+            enhanced_wav, new_sr = enhance(
+                dwav,
+                sr,
+                device,
+                nfe=128,  # Maximum quality (1-128)
+                solver="Midpoint",  # Midpoint/RK4/Euler
+                lambd=0.9,  # Enable denoising
+                tau=0.5  # Prior temperature
             )
+
+            # Save enhanced audio
+            torchaudio.save(str(output_wav), enhanced_wav.cpu(), new_sr)
 
             print(f"✓ Resemble Enhance completed: {output_wav}")
 
