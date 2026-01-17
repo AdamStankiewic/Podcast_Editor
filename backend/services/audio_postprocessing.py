@@ -231,11 +231,12 @@ class AudioPostProcessingService:
             print(f"Processing audio: {audio.shape}, sample rate: {sr}")
 
             try:
-                audio = audio.to(device)
+                # IMPORTANT: DeepFilterNet's enhance() expects audio on CPU
+                # It will handle moving to GPU internally
+                # Keep audio on CPU (don't move to GPU here)
 
-                # Enhance audio
+                # Enhance audio (DeepFilterNet handles GPU internally)
                 enhanced = enhance(model, df_state, audio, sr)
-                enhanced = enhanced.cpu()
 
                 print(f"✓ DeepFilterNet denoising complete (GPU)")
 
@@ -248,7 +249,6 @@ class AudioPostProcessingService:
                 # Retry on CPU
                 device = torch.device("cpu")
                 model = model.to(device)
-                audio = audio.cpu()
 
                 enhanced = enhance(model, df_state, audio, sr)
 
