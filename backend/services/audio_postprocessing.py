@@ -194,7 +194,7 @@ class AudioPostProcessingService:
             # Run enhancement
             # Parameters:
             # - nfe: Number of function evaluations (higher = better quality, 128 = max)
-            # - solver: ODE solver ('Midpoint' is good balance of quality/speed)
+            # - solver: ODE solver ('midpoint' is good balance of quality/speed)
             # - lambd: 0.9 for denoising, 0.1 for enhancement only
             # - tau: Prior temperature (0.5 = balanced)
             enhanced_wav, new_sr = enhance(
@@ -202,7 +202,7 @@ class AudioPostProcessingService:
                 sr,
                 device,
                 nfe=128,  # Maximum quality (1-128)
-                solver="Midpoint",  # Midpoint/RK4/Euler
+                solver="midpoint",  # midpoint/rk4/euler
                 lambd=0.9,  # Enable denoising
                 tau=0.5  # Prior temperature
             )
