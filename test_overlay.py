@@ -12,15 +12,25 @@ def test_overlay(job_id: str):
     """Test overlay rendering on existing job"""
 
     data_dir = Path(__file__).parent / "data" / job_id
+    assets_dir = Path(__file__).parent / "assets"
 
-    # Check required files
-    base_video = data_dir / "base_video.mp4"
-    overlay_png = data_dir / "overlay.png"
-    output_video = data_dir / "test_overlay.mp4"
+    # Check required files - try multiple video sources
+    base_video = None
+    for video_name in ["base_video.mp4", "original.mp4", "final.mp4"]:
+        video_path = data_dir / video_name
+        if video_path.exists():
+            base_video = video_path
+            print(f"✓ Found video: {video_name}")
+            break
 
-    if not base_video.exists():
-        print(f"❌ Base video not found: {base_video}")
+    if not base_video:
+        print(f"❌ No video found in {data_dir}")
+        print(f"   Looked for: base_video.mp4, original.mp4, final.mp4")
         return False
+
+    # Overlay from assets folder
+    overlay_png = assets_dir / "overlay.png"
+    output_video = data_dir / "test_overlay.mp4"
 
     if not overlay_png.exists():
         print(f"❌ Overlay PNG not found: {overlay_png}")
