@@ -240,8 +240,15 @@ class AudioPostProcessingService:
 
                 print(f"✓ DeepFilterNet denoising complete (GPU)")
 
-            except torch.cuda.OutOfMemoryError:
-                print(f"⚠ GPU out of memory, falling back to CPU...")
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                # Handle both OOM and large tensor errors
+                error_str = str(e)
+                if "OutOfMemoryError" in type(e).__name__:
+                    print(f"⚠ GPU out of memory, falling back to CPU...")
+                elif "canUse32BitIndexMath" in error_str:
+                    print(f"⚠ Audio file too large for GPU (32-bit index limit), falling back to CPU...")
+                else:
+                    print(f"⚠ GPU error ({error_str[:100]}...), falling back to CPU...")
 
                 # Clear GPU memory
                 torch.cuda.empty_cache()
