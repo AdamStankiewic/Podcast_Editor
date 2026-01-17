@@ -185,9 +185,11 @@ class AudioPostProcessingService:
             # Load audio
             dwav, sr = torchaudio.load(str(input_wav))
 
-            # Convert to mono if needed (resemble-enhance works best with mono)
+            # Convert to mono if needed (resemble-enhance requires 1D waveform)
             if dwav.shape[0] > 1:
-                dwav = torch.mean(dwav, dim=0, keepdim=True)
+                dwav = torch.mean(dwav, dim=0)  # Average channels -> 1D
+            else:
+                dwav = dwav.squeeze(0)  # Remove channel dimension -> 1D
 
             print(f"Processing audio: {dwav.shape}, sample rate: {sr}")
 
@@ -207,7 +209,9 @@ class AudioPostProcessingService:
                 tau=0.5  # Prior temperature
             )
 
-            # Save enhanced audio
+            # Save enhanced audio (add channel dimension if needed)
+            if enhanced_wav.dim() == 1:
+                enhanced_wav = enhanced_wav.unsqueeze(0)  # (samples) -> (1, samples)
             torchaudio.save(str(output_wav), enhanced_wav.cpu(), new_sr)
 
             print(f"✓ Resemble Enhance completed: {output_wav}")
