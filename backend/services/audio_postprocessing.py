@@ -253,10 +253,18 @@ class AudioPostProcessingService:
                 # Clear GPU memory
                 torch.cuda.empty_cache()
 
-                # Retry on CPU
+                # Delete GPU model completely
+                del model
+                del df_state
+                torch.cuda.empty_cache()
+
+                # Reinitialize model on CPU from scratch
+                print("Reinitializing model on CPU...")
+                model, df_state, _ = init_df()
                 device = torch.device("cpu")
                 model = model.to(device)
 
+                # Run enhancement on CPU
                 enhanced = enhance(model, df_state, audio, sr)
 
                 print(f"✓ DeepFilterNet denoising complete (CPU fallback)")
