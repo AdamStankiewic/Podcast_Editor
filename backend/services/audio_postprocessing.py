@@ -202,7 +202,7 @@ class AudioPostProcessingService:
             raise RuntimeError(f"Resemble Enhance failed: {e}")
 
     def _denoise(self, input_wav: Path, output_wav: Path, temp_dir: Path):
-        """Apply DeepFilterNet noise reduction using Python API"""
+        """Apply DeepFilterNet noise reduction using Python API with chunk-based processing"""
         try:
             import torch
             import torchaudio
@@ -210,10 +210,9 @@ class AudioPostProcessingService:
 
             print(f"Loading DeepFilterNet model...")
 
-            # Initialize DeepFilterNet model
+            # Initialize DeepFilterNet model on GPU
             model, df_state, _ = init_df()
 
-            # Try GPU first, fallback to CPU if OOM error
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             model = model.to(device)
 
@@ -230,55 +229,54 @@ class AudioPostProcessingService:
 
             print(f"Processing audio: {audio.shape}, sample rate: {sr}")
 
-            try:
+            # Calculate chunk size (5 minutes at sample rate to avoid 32-bit indexing limit)
+            # 5 minutes = 300 seconds * 48000 Hz = 14,400,000 samples (well under 2^31 limit)
+            chunk_duration_sec = 300  # 5 minutes
+            chunk_size = chunk_duration_sec * sr
+            total_samples = audio.shape[1]
+
+            # Check if we need chunking (audio longer than 10 minutes)
+            needs_chunking = total_samples > (chunk_size * 2)
+
+            if needs_chunking:
+                print(f"⚠ Audio is large ({total_samples / sr / 60:.1f} min), using chunk-based processing to avoid GPU limits...")
+                print(f"Splitting into {chunk_size / sr / 60:.0f}-minute chunks...")
+
+                # Process in chunks
+                enhanced_chunks = []
+                num_chunks = (total_samples + chunk_size - 1) // chunk_size  # Ceiling division
+
+                for i in range(num_chunks):
+                    start_idx = i * chunk_size
+                    end_idx = min((i + 1) * chunk_size, total_samples)
+
+                    chunk = audio[:, start_idx:end_idx]
+
+                    print(f"Processing chunk {i+1}/{num_chunks} ({chunk.shape[1] / sr / 60:.1f} min)...")
+
+                    try:
+                        # Enhance chunk (DeepFilterNet handles GPU internally)
+                        enhanced_chunk = enhance(model, df_state, chunk, sr)
+                        enhanced_chunks.append(enhanced_chunk)
+                    except Exception as e:
+                        print(f"⚠ Error processing chunk {i+1}: {e}")
+                        raise
+
+                # Concatenate all enhanced chunks
+                print(f"Concatenating {len(enhanced_chunks)} chunks...")
+                enhanced = torch.cat(enhanced_chunks, dim=1)
+
+                print(f"✓ DeepFilterNet denoising complete (GPU, chunk-based processing)")
+
+            else:
+                # Process entire audio at once (faster for smaller files)
+                print(f"Audio size is OK ({total_samples / sr / 60:.1f} min), processing in one pass...")
+
                 # IMPORTANT: DeepFilterNet's enhance() expects audio on CPU
                 # It will handle moving to GPU internally
-                # Keep audio on CPU (don't move to GPU here)
-
-                # Enhance audio (DeepFilterNet handles GPU internally)
                 enhanced = enhance(model, df_state, audio, sr)
 
                 print(f"✓ DeepFilterNet denoising complete (GPU)")
-
-            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
-                # Handle both OOM and large tensor errors
-                error_str = str(e)
-                if "OutOfMemoryError" in type(e).__name__:
-                    print(f"⚠ GPU out of memory, falling back to CPU...")
-                elif "canUse32BitIndexMath" in error_str:
-                    print(f"⚠ Audio file too large for GPU (32-bit index limit), falling back to CPU...")
-                else:
-                    print(f"⚠ GPU error ({error_str[:100]}...), falling back to CPU...")
-
-                # Clear GPU memory
-                torch.cuda.empty_cache()
-
-                # Delete GPU model completely
-                del model
-                del df_state
-                torch.cuda.empty_cache()
-
-                # Force CPU-only mode by temporarily hiding CUDA
-                print("Reinitializing model on CPU (disabling CUDA)...")
-                cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-                os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Hide CUDA from init_df()
-
-                try:
-                    # Reinitialize on CPU
-                    model, df_state, _ = init_df()
-                    device = torch.device("cpu")
-                    model = model.to(device)
-
-                    # Run enhancement on CPU
-                    enhanced = enhance(model, df_state, audio, sr)
-
-                    print(f"✓ DeepFilterNet denoising complete (CPU fallback)")
-                finally:
-                    # Restore CUDA visibility
-                    if cuda_visible is not None:
-                        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible
-                    else:
-                        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
 
             # Save enhanced audio
             torchaudio.save(str(output_wav), enhanced, sr)
