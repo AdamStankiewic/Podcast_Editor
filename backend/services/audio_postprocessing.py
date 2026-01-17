@@ -56,15 +56,11 @@ class AudioPostProcessingService:
             return False
 
     def _check_deepfilter(self) -> bool:
-        """Check if deep-filter command is available"""
+        """Check if DeepFilterNet Python module is available"""
         try:
-            result = subprocess.run(
-                ["deep-filter", "--help"],
-                capture_output=True,
-                timeout=5
-            )
-            return result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+            import df  # DeepFilterNet module
+            return True
+        except ImportError:
             return False
 
     def process_audio(
@@ -206,33 +202,38 @@ class AudioPostProcessingService:
             raise RuntimeError(f"Resemble Enhance failed: {e}")
 
     def _denoise(self, input_wav: Path, output_wav: Path, temp_dir: Path):
-        """Apply DeepFilterNet noise reduction"""
+        """Apply DeepFilterNet noise reduction using Python API"""
         try:
-            # DeepFilterNet outputs to a subdirectory
-            df_output_dir = temp_dir / "tmp_df"
-            df_output_dir.mkdir(exist_ok=True)
+            import torch
+            import torchaudio
+            from df import enhance, init_df
 
-            subprocess.run([
-                "deep-filter",
-                "-D",  # Post-filter (best quality)
-                "-o", str(df_output_dir),
-                str(input_wav)
-            ], check=True, capture_output=True)
+            print(f"Loading DeepFilterNet model...")
 
-            # Find the output file (DeepFilterNet keeps original basename)
-            expected_output = df_output_dir / input_wav.name
-            if expected_output.exists():
-                shutil.move(str(expected_output), str(output_wav))
-            else:
-                # Fallback: find first WAV in output dir
-                wav_files = list(df_output_dir.glob("*.wav"))
-                if wav_files:
-                    shutil.move(str(wav_files[0]), str(output_wav))
-                else:
-                    raise RuntimeError("DeepFilterNet did not produce output file")
+            # Initialize DeepFilterNet model
+            model, df_state, _ = init_df()
 
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Denoising failed: {e.stderr.decode() if e.stderr else 'unknown'}")
+            # Set device (CUDA if available, else CPU)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            model = model.to(device)
+
+            print(f"DeepFilterNet using device: {device}")
+
+            # Load audio
+            audio, sr = torchaudio.load(str(input_wav))
+            audio = audio.to(device)
+
+            # Enhance audio
+            enhanced = enhance(model, df_state, audio, sr)
+
+            # Save enhanced audio
+            enhanced = enhanced.cpu()
+            torchaudio.save(str(output_wav), enhanced, sr)
+
+            print(f"✓ DeepFilterNet denoising complete")
+
+        except Exception as e:
+            raise RuntimeError(f"DeepFilterNet denoising failed: {e}")
 
     def _apply_studio_chain(self, input_wav: Path, output_wav: Path):
         """
