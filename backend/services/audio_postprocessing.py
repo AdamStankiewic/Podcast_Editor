@@ -203,7 +203,7 @@ class AudioPostProcessingService:
                 dwav,
                 sr,
                 device,
-                nfe=128,  # Maximum quality (1-128)
+                nfe=64,  # Balanced quality/speed (32=fast, 64=balanced, 128=max quality)
                 solver="midpoint",  # midpoint/rk4/euler
                 lambd=0.9,  # Enable denoising
                 tau=0.5  # Prior temperature
