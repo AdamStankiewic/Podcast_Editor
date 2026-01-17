@@ -54,14 +54,34 @@ def test_overlay(job_id: str):
     result = subprocess.run(probe_cmd, capture_output=True, text=True)
     print(result.stdout)
 
+    # Get video dimensions
+    try:
+        import json
+        probe_result = subprocess.run([
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "json",
+            str(base_video)
+        ], capture_output=True, text=True, check=True)
+
+        video_info = json.loads(probe_result.stdout)
+        video_width = video_info["streams"][0]["width"]
+        video_height = video_info["streams"][0]["height"]
+        print(f"Video dimensions: {video_width}x{video_height}")
+    except Exception as e:
+        print(f"Warning: Could not get video dimensions: {e}")
+        video_width = 2560
+        video_height = 1440
+
     # Render overlay
-    print("Rendering overlay...")
+    print("Rendering overlay with 7% video scale-up...")
     print("(This will take ~10 seconds)")
     print()
 
-    # Use same filter as production code
+    # Use same filter as production code - scale up 7%, crop to original size, overlay
     filter_complex = (
-        "[0:v]setpts=1.0*PTS[v];"
+        f"[0:v]scale=iw*1.07:ih*1.07,crop={video_width}:{video_height}:(iw-{video_width})/2:(ih-{video_height})/2,setpts=1.0*PTS[v];"
         "[v][1:v]overlay=0:0:format=auto:shortest=1"
     )
 

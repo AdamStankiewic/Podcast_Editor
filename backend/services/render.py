@@ -350,10 +350,10 @@ class VideoRenderService:
                 # Two-input filter: video + overlay
                 # NEW: Use simple scale instead of deprecated scale2ref
                 # This works with FFmpeg 2025
-                # Strategy: Use overlay at original size, positioned at top-left (0:0)
+                # Strategy: Scale video up 7%, crop to original size (fills frame better under overlay), then overlay
                 filter_complex = (
-                    # Apply speed adjustment to video
-                    f"[0:v]setpts={setpts_value}*PTS[v];"
+                    # Scale video up by 7% to fill frame better, crop back to original size (centered), apply speed
+                    f"[0:v]scale=iw*1.07:ih*1.07,crop={video_width}:{video_height}:(iw-{video_width})/2:(ih-{video_height})/2,setpts={setpts_value}*PTS[v];"
                     # Overlay PNG on top at position 0:0 (top-left corner)
                     # shortest=1 means overlay ends when shortest input ends
                     # format=auto automatically handles alpha channel (RGBA)
