@@ -28,10 +28,10 @@ if %errorlevel% equ 0 (
 )
 
 echo.
-echo [2/4] Uruchamiam Celery Worker (background)...
-start "Celery Worker" wsl bash -c "cd /mnt/c/Users/adams/Desktop/Podcast_Editor && source .venv/bin/activate && celery -A backend.celery_app worker --loglevel=info"
+echo [2/4] Uruchamiam Celery Worker (1 job na raz - nie przeciazy kompa)...
+start "Celery Worker" wsl bash -c "cd /mnt/c/Users/adams/Desktop/Podcast_Editor && source .venv/bin/activate && celery -A backend.celery_app worker --loglevel=info --concurrency=1"
 timeout /t 3 >nul
-echo       ✓ Celery Worker started
+echo       ✓ Celery Worker started (concurrency=1)
 
 echo.
 echo [3/4] Instaluje brakujace pakiety (jesli potrzebne)...
