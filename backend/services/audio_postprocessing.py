@@ -258,16 +258,27 @@ class AudioPostProcessingService:
                 del df_state
                 torch.cuda.empty_cache()
 
-                # Reinitialize model on CPU from scratch
-                print("Reinitializing model on CPU...")
-                model, df_state, _ = init_df()
-                device = torch.device("cpu")
-                model = model.to(device)
+                # Force CPU-only mode by temporarily hiding CUDA
+                print("Reinitializing model on CPU (disabling CUDA)...")
+                cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+                os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Hide CUDA from init_df()
 
-                # Run enhancement on CPU
-                enhanced = enhance(model, df_state, audio, sr)
+                try:
+                    # Reinitialize on CPU
+                    model, df_state, _ = init_df()
+                    device = torch.device("cpu")
+                    model = model.to(device)
 
-                print(f"✓ DeepFilterNet denoising complete (CPU fallback)")
+                    # Run enhancement on CPU
+                    enhanced = enhance(model, df_state, audio, sr)
+
+                    print(f"✓ DeepFilterNet denoising complete (CPU fallback)")
+                finally:
+                    # Restore CUDA visibility
+                    if cuda_visible is not None:
+                        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible
+                    else:
+                        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
 
             # Save enhanced audio
             torchaudio.save(str(output_wav), enhanced, sr)
