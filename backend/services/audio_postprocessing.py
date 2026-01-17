@@ -190,7 +190,7 @@ class AudioPostProcessingService:
                 input_path=str(input_wav),
                 output_path=str(output_wav),
                 solver="midpoint",
-                nfe=64,  # Good balance (32=fast, 64=balanced, 128=best quality)
+                nfe=128,  # Maximum quality (32=fast, 64=balanced, 128=best quality)
                 tau=0.5,  # Denoising strength
                 denoising=True,
                 device=device
