@@ -363,8 +363,8 @@ class AudioPostProcessingService:
                 "equalizer=f=250:t=q:w=1.0:g=-2",  # Reduce muddiness
                 "equalizer=f=2500:t=q:w=1.5:g=4",  # Add clarity/presence (wyrazistość)
                 "equalizer=f=4500:t=q:w=1.0:g=3",  # Add intelligibility
+                "equalizer=f=7000:t=q:w=2.0:g=-4",  # De-ess: reduce harsh sibilance (s/sz sounds)
                 "equalizer=f=10000:t=q:w=2.0:g=2",  # Add air/brightness
-                "deesser=i=0.1:m=0.5:f=6500:s=o",  # Reduce sibilance (s/sz sounds)
                 "acompressor=threshold=-24dB:ratio=4:attack=5:release=50:makeup=6",  # More punch
                 "alimiter=limit=0.891"  # Prevent clipping (-1 dB)
             ])
