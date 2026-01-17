@@ -372,6 +372,7 @@ class VideoRenderService:
                     "-c:v", self.encoder,
                     "-preset", self.preset,
                     "-crf", "23" if self.encoder == "libx264" else "20",  # Lower CRF for NVENC
+                    "-pix_fmt", "yuv420p",  # Force standard pixel format for compatibility
                     str(output_video)
                 ]
 
@@ -419,6 +420,7 @@ class VideoRenderService:
                     "-c:v", self.encoder,
                     "-preset", self.preset,
                     "-crf", "23" if self.encoder == "libx264" else "20",  # Lower CRF for NVENC
+                    "-pix_fmt", "yuv420p",  # Force standard pixel format for compatibility
                     str(output_video)
                 ]
 
