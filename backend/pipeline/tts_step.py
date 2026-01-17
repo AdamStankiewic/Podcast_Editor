@@ -122,7 +122,8 @@ def generate_tts(
 
         try:
             audio_postprocessing = get_audio_postprocessing(
-                enable_denoise=True,  # Enable DeepFilterNet if available
+                enable_ai_enhance=True,  # Enable Resemble Enhance (AI voice enhancement)
+                enable_denoise=True,  # Enable DeepFilterNet if Resemble not available
                 enable_studio_chain=True,  # Enable EQ + compression + limiter
                 target_lufs=-16.0  # Standard for podcasts/YouTube
             )
