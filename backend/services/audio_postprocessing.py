@@ -213,12 +213,13 @@ class AudioPostProcessingService:
             # Initialize DeepFilterNet model
             model, df_state, _ = init_df()
 
-            # Use CPU to avoid GPU OOM (Out of Memory) errors with large files
-            # GPU can run out of memory with long audio files (>5 minutes)
-            device = torch.device("cpu")
+            # Try GPU first, fallback to CPU if OOM error
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             model = model.to(device)
 
-            print(f"DeepFilterNet using device: {device} (CPU mode to avoid OOM)")
+            print(f"DeepFilterNet using device: {device}")
+            if torch.cuda.is_available():
+                print(f"GPU: {torch.cuda.get_device_name(0)}, Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
 
             # Load audio
             audio, sr = torchaudio.load(str(input_wav))
@@ -227,17 +228,34 @@ class AudioPostProcessingService:
             if audio.shape[0] > 1:
                 audio = torch.mean(audio, dim=0, keepdim=True)
 
-            audio = audio.to(device)
-
             print(f"Processing audio: {audio.shape}, sample rate: {sr}")
 
-            # Enhance audio
-            enhanced = enhance(model, df_state, audio, sr)
+            try:
+                audio = audio.to(device)
+
+                # Enhance audio
+                enhanced = enhance(model, df_state, audio, sr)
+                enhanced = enhanced.cpu()
+
+                print(f"✓ DeepFilterNet denoising complete (GPU)")
+
+            except torch.cuda.OutOfMemoryError:
+                print(f"⚠ GPU out of memory, falling back to CPU...")
+
+                # Clear GPU memory
+                torch.cuda.empty_cache()
+
+                # Retry on CPU
+                device = torch.device("cpu")
+                model = model.to(device)
+                audio = audio.cpu()
+
+                enhanced = enhance(model, df_state, audio, sr)
+
+                print(f"✓ DeepFilterNet denoising complete (CPU fallback)")
 
             # Save enhanced audio
             torchaudio.save(str(output_wav), enhanced, sr)
-
-            print(f"✓ DeepFilterNet denoising complete")
 
         except Exception as e:
             raise RuntimeError(f"DeepFilterNet denoising failed: {e}")
