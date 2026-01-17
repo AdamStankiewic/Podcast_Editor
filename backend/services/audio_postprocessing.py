@@ -213,21 +213,28 @@ class AudioPostProcessingService:
             # Initialize DeepFilterNet model
             model, df_state, _ = init_df()
 
-            # Set device (CUDA if available, else CPU)
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            # Use CPU to avoid GPU OOM (Out of Memory) errors with large files
+            # GPU can run out of memory with long audio files (>5 minutes)
+            device = torch.device("cpu")
             model = model.to(device)
 
-            print(f"DeepFilterNet using device: {device}")
+            print(f"DeepFilterNet using device: {device} (CPU mode to avoid OOM)")
 
             # Load audio
             audio, sr = torchaudio.load(str(input_wav))
+
+            # Convert to mono if stereo (DeepFilterNet works better with mono)
+            if audio.shape[0] > 1:
+                audio = torch.mean(audio, dim=0, keepdim=True)
+
             audio = audio.to(device)
+
+            print(f"Processing audio: {audio.shape}, sample rate: {sr}")
 
             # Enhance audio
             enhanced = enhance(model, df_state, audio, sr)
 
             # Save enhanced audio
-            enhanced = enhanced.cpu()
             torchaudio.save(str(output_wav), enhanced, sr)
 
             print(f"✓ DeepFilterNet denoising complete")
