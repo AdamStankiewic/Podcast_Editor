@@ -232,7 +232,10 @@ class AudioPostProcessingService:
             # Calculate chunk size (5 minutes at sample rate to avoid 32-bit indexing limit)
             # 5 minutes = 300 seconds * 48000 Hz = 14,400,000 samples (well under 2^31 limit)
             chunk_duration_sec = 300  # 5 minutes
+            overlap_sec = 2  # 2 seconds overlap between chunks for smooth transitions
+
             chunk_size = chunk_duration_sec * sr
+            overlap_size = overlap_sec * sr
             total_samples = audio.shape[1]
 
             # Check if we need chunking (audio longer than 10 minutes)
@@ -240,15 +243,16 @@ class AudioPostProcessingService:
 
             if needs_chunking:
                 print(f"⚠ Audio is large ({total_samples / sr / 60:.1f} min), using chunk-based processing to avoid GPU limits...")
-                print(f"Splitting into {chunk_size / sr / 60:.0f}-minute chunks...")
+                print(f"Splitting into {chunk_size / sr / 60:.0f}-minute chunks with {overlap_sec}s overlap for smooth transitions...")
 
-                # Process in chunks
+                # Process in chunks with overlap
                 enhanced_chunks = []
                 num_chunks = (total_samples + chunk_size - 1) // chunk_size  # Ceiling division
 
                 for i in range(num_chunks):
-                    start_idx = i * chunk_size
-                    end_idx = min((i + 1) * chunk_size, total_samples)
+                    # Add overlap: include extra samples from previous/next chunk
+                    start_idx = max(0, i * chunk_size - overlap_size)
+                    end_idx = min((i + 1) * chunk_size + overlap_size, total_samples)
 
                     chunk = audio[:, start_idx:end_idx]
 
@@ -257,16 +261,74 @@ class AudioPostProcessingService:
                     try:
                         # Enhance chunk (DeepFilterNet handles GPU internally)
                         enhanced_chunk = enhance(model, df_state, chunk, sr)
-                        enhanced_chunks.append(enhanced_chunk)
+
+                        # Store with metadata about overlap regions
+                        enhanced_chunks.append({
+                            'audio': enhanced_chunk,
+                            'start_idx': start_idx,
+                            'end_idx': end_idx,
+                            'chunk_idx': i
+                        })
                     except Exception as e:
                         print(f"⚠ Error processing chunk {i+1}: {e}")
                         raise
 
-                # Concatenate all enhanced chunks
-                print(f"Concatenating {len(enhanced_chunks)} chunks...")
-                enhanced = torch.cat(enhanced_chunks, dim=1)
+                # Concatenate chunks with crossfading in overlap regions
+                print(f"Concatenating {len(enhanced_chunks)} chunks with crossfading...")
 
-                print(f"✓ DeepFilterNet denoising complete (GPU, chunk-based processing)")
+                # Initialize output tensor
+                enhanced = torch.zeros((1, total_samples))
+
+                for i, chunk_data in enumerate(enhanced_chunks):
+                    chunk_audio = chunk_data['audio']
+                    start_idx = chunk_data['start_idx']
+                    end_idx = chunk_data['end_idx']
+
+                    # Calculate actual chunk boundaries (without overlap for final output)
+                    chunk_start = i * chunk_size
+                    chunk_end = min((i + 1) * chunk_size, total_samples)
+
+                    # Calculate position within the enhanced chunk
+                    offset_start = chunk_start - start_idx
+                    offset_end = offset_start + (chunk_end - chunk_start)
+
+                    # Extract the core part (without overlap regions)
+                    core = chunk_audio[:, offset_start:offset_end]
+
+                    if i == 0:
+                        # First chunk: no fade-in
+                        enhanced[:, chunk_start:chunk_end] = core
+                    elif i == len(enhanced_chunks) - 1:
+                        # Last chunk: no fade-out, but crossfade with previous
+                        # Crossfade at the beginning
+                        fade_samples = min(overlap_size, core.shape[1])
+                        fade_in = torch.linspace(0, 1, fade_samples).unsqueeze(0)
+                        fade_out = torch.linspace(1, 0, fade_samples).unsqueeze(0)
+
+                        # Blend overlap region
+                        enhanced[:, chunk_start:chunk_start + fade_samples] = (
+                            enhanced[:, chunk_start:chunk_start + fade_samples] * fade_out +
+                            core[:, :fade_samples] * fade_in
+                        )
+                        # Copy rest
+                        if fade_samples < core.shape[1]:
+                            enhanced[:, chunk_start + fade_samples:chunk_end] = core[:, fade_samples:]
+                    else:
+                        # Middle chunks: crossfade at beginning
+                        fade_samples = min(overlap_size, core.shape[1])
+                        fade_in = torch.linspace(0, 1, fade_samples).unsqueeze(0)
+                        fade_out = torch.linspace(1, 0, fade_samples).unsqueeze(0)
+
+                        # Blend overlap region
+                        enhanced[:, chunk_start:chunk_start + fade_samples] = (
+                            enhanced[:, chunk_start:chunk_start + fade_samples] * fade_out +
+                            core[:, :fade_samples] * fade_in
+                        )
+                        # Copy rest
+                        if fade_samples < core.shape[1]:
+                            enhanced[:, chunk_start + fade_samples:chunk_end] = core[:, fade_samples:]
+
+                print(f"✓ DeepFilterNet denoising complete (GPU, chunk-based processing with crossfading)")
 
             else:
                 # Process entire audio at once (faster for smaller files)
@@ -288,18 +350,22 @@ class AudioPostProcessingService:
         """
         Apply studio processing chain:
         - High-pass filter (80 Hz) - remove rumble
-        - EQ adjustments (reduce 220Hz, boost 3.5kHz and 9kHz for clarity)
-        - Compression (smooth dynamics)
+        - EQ adjustments for warmth and clarity
+        - De-esser (reduce harsh sibilance)
+        - Compression (smooth dynamics, add punch)
         - Limiter (prevent clipping)
         """
         try:
-            # Build filter chain
+            # Build filter chain - more aggressive for "studyjne brzmienie"
             filter_chain = ",".join([
                 "highpass=f=80",  # Remove low rumble
-                "equalizer=f=220:t=q:w=1.0:g=-3",  # Reduce muddiness
-                "equalizer=f=3500:t=q:w=1.0:g=2",  # Add presence
-                "equalizer=f=9000:t=q:w=1.0:g=2",  # Add air/brightness
-                "acompressor=threshold=-20dB:ratio=3:attack=10:release=80:makeup=4",  # Smooth dynamics
+                "equalizer=f=150:t=q:w=1.5:g=2",  # Add warmth/body
+                "equalizer=f=250:t=q:w=1.0:g=-2",  # Reduce muddiness
+                "equalizer=f=2500:t=q:w=1.5:g=4",  # Add clarity/presence (wyrazistość)
+                "equalizer=f=4500:t=q:w=1.0:g=3",  # Add intelligibility
+                "equalizer=f=10000:t=q:w=2.0:g=2",  # Add air/brightness
+                "deesser=i=0.1:m=0.5:f=6500:s=o",  # Reduce sibilance (s/sz sounds)
+                "acompressor=threshold=-24dB:ratio=4:attack=5:release=50:makeup=6",  # More punch
                 "alimiter=limit=0.891"  # Prevent clipping (-1 dB)
             ])
 
