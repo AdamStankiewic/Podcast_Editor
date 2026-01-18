@@ -70,10 +70,19 @@ def render_final_video(
     storage.update_progress(job_id, "rendering", 6, message=f"Rendering {lang_name} video...")
     storage.add_log(job_id, f"[{target_language.upper()}] Starting video rendering pipeline...", "INFO")
 
+    # Select language-specific overlay (fallback to default if not found)
+    lang_specific_overlay = os.getenv(f"OVERLAY_PATH_{target_language.upper()}")
+    if lang_specific_overlay and Path(lang_specific_overlay).exists():
+        selected_overlay = lang_specific_overlay
+        storage.add_log(job_id, f"[{target_language.upper()}] Using language-specific overlay: {selected_overlay}", "INFO")
+    else:
+        selected_overlay = overlay_path
+        storage.add_log(job_id, f"[{target_language.upper()}] Using default overlay: {selected_overlay}", "INFO")
+
     # Initialize render service with GPU support
     use_gpu = os.getenv("USE_GPU_ENCODING", "true").lower() == "true"
     render_service = VideoRenderService(
-        overlay_path=overlay_path,
+        overlay_path=selected_overlay,
         loop_audio_path=loop_audio_path,
         use_gpu=use_gpu
     )
