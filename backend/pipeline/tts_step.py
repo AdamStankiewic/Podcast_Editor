@@ -1,10 +1,10 @@
 """
 Pipeline Step 4: Generate SSML and TTS audio
-- Apply phonetics rules from CSV
+- Apply phonetics rules from CSV (Polish only)
 - Generate SSML with <sub> and <phoneme> tags
 - Run Azure TTS batch synthesis
 - Apply studio-quality audio post-processing (optional)
-Idempotent: Skips if tts.wav already exists
+Idempotent: Skips if tts_{language}.wav already exists
 """
 from pathlib import Path
 from backend.services.phonetics import PhoneticsService
@@ -17,85 +17,99 @@ def generate_tts(
     job_id: str,
     speech_key: str,
     speech_region: str,
-    voice: str = "en-GB-Ollie:DragonHDLatestNeural",
-    rate: str = "-8%",
+    voice: str = "en-GB-OllieMultilingualNeural",
+    rate: str = "-10%",
     pitch: str = "0%",
+    target_language: str = "pl",
     pronunciations_csv: str = "./pronunciations.csv"
 ) -> dict:
     """
-    Generate TTS audio with phonetics
+    Generate TTS audio with phonetics for target language
+
+    Args:
+        job_id: Job identifier
+        speech_key: Azure Speech API key
+        speech_region: Azure Speech region
+        voice: Azure TTS voice name
+        rate: Speech rate adjustment
+        pitch: Speech pitch adjustment
+        target_language: Target language code (pl, fr, en)
+        pronunciations_csv: Path to pronunciations CSV (Polish only)
 
     Returns:
-        dict with ssml_path, tts_audio_path, phonetics_stats
+        dict with ssml_path, tts_audio_path
     """
     storage = get_storage()
 
-    transcript_pl_path = storage.get_artifact_path(job_id, "transcript_pl.txt")
-    ssml_path = storage.get_artifact_path(job_id, "ssml_pl.xml")
-    tts_audio_path = storage.get_artifact_path(job_id, "tts.wav")
-    tts_audio_studio_path = storage.get_artifact_path(job_id, "tts_studio.wav")
+    # Language display names
+    lang_names = {"pl": "Polish", "fr": "French", "en": "English"}
+    lang_name = lang_names.get(target_language, target_language.upper())
 
-    # Check if TTS already done (prefer studio version)
-    if storage.artifact_exists(job_id, "tts_studio.wav"):
-        storage.add_log(job_id, "Studio-processed TTS audio already exists, skipping", "INFO")
-        return {
-            "ssml_path": str(ssml_path) if ssml_path.exists() else None,
-            "tts_audio_path": str(tts_audio_path),
-            "tts_audio_studio_path": str(tts_audio_studio_path)
-        }
-    elif storage.artifact_exists(job_id, "tts.wav"):
-        storage.add_log(job_id, "TTS audio already exists, skipping", "INFO")
+    transcript_path = storage.get_artifact_path(job_id, f"transcript_{target_language}.txt")
+    ssml_path = storage.get_artifact_path(job_id, f"ssml_{target_language}.xml")
+    tts_audio_path = storage.get_artifact_path(job_id, f"tts_{target_language}.wav")
+
+    # Check if TTS already done
+    if storage.artifact_exists(job_id, f"tts_{target_language}.wav"):
+        storage.add_log(job_id, f"{lang_name} TTS audio already exists, skipping", "INFO")
         return {
             "ssml_path": str(ssml_path) if ssml_path.exists() else None,
             "tts_audio_path": str(tts_audio_path)
         }
 
-    # Check if Polish transcript exists
-    if not transcript_pl_path.exists():
-        raise RuntimeError("Polish transcript not found. Run translate step first.")
+    # Check if translation exists
+    if not transcript_path.exists():
+        raise RuntimeError(f"{lang_name} transcript not found. Run translate step first.")
 
-    storage.update_progress(job_id, "generating_tts", 4, message="Applying phonetics rules...")
-    storage.add_log(job_id, "Loading phonetics rules...", "INFO")
+    storage.update_progress(job_id, "generating_tts", 4, message=f"Generating {lang_name} TTS...")
+    storage.add_log(job_id, f"[{target_language.upper()}] Starting TTS generation...", "INFO")
 
-    # Load Polish text
-    text_pl = transcript_pl_path.read_text(encoding="utf-8")
+    # Load translated text
+    translated_text = transcript_path.read_text(encoding="utf-8")
 
-    # Apply phonetics
-    phonetics = PhoneticsService(csv_path=pronunciations_csv)
-    text_with_ssml = phonetics.inject_ssml_tags(text_pl)
+    # Apply phonetics (Polish only)
+    if target_language == "pl":
+        storage.add_log(job_id, f"[{target_language.upper()}] Applying phonetics rules...", "INFO")
+        phonetics = PhoneticsService(csv_path=pronunciations_csv)
+        text_with_ssml = phonetics.inject_ssml_tags(translated_text)
 
-    # Validate SSML
-    is_valid, error = phonetics.validate_ssml(text_with_ssml)
-    if not is_valid:
-        storage.add_log(job_id, f"⚠ SSML validation warning: {error}", "WARNING")
+        # Validate SSML
+        is_valid, error = phonetics.validate_ssml(text_with_ssml)
+        if not is_valid:
+            storage.add_log(job_id, f"⚠ SSML validation warning: {error}", "WARNING")
 
-    # Get statistics
-    stats = phonetics.get_statistics(text_with_ssml)
-    storage.add_log(
-        job_id,
-        f"Applied phonetics: {stats['sub_tags']} substitutions, {stats['phoneme_tags']} phonemes",
-        "INFO"
-    )
+        # Get statistics
+        stats = phonetics.get_statistics(text_with_ssml)
+        storage.add_log(
+            job_id,
+            f"[{target_language.upper()}] Applied phonetics: {stats['sub_tags']} substitutions, {stats['phoneme_tags']} phonemes",
+            "INFO"
+        )
 
-    # Save SSML for reference
-    ssml_path.write_text(text_with_ssml, encoding="utf-8")
-    storage.mark_step_complete(job_id, "ssml_pl", str(ssml_path))
+        # Save SSML for reference
+        ssml_path.write_text(text_with_ssml, encoding="utf-8")
+        storage.mark_step_complete(job_id, f"ssml_{target_language}", str(ssml_path))
+    else:
+        # No phonetics for French/English, use plain text
+        text_with_ssml = translated_text
+        storage.add_log(job_id, f"[{target_language.upper()}] Skipping phonetics (not available for {lang_name})", "INFO")
 
     # Generate TTS
-    storage.update_progress(job_id, "generating_tts", 4, message="Synthesizing speech with Azure TTS...")
-    storage.add_log(job_id, f"Starting Azure TTS synthesis (voice: {voice})...", "INFO")
+    storage.update_progress(job_id, "generating_tts", 4, message=f"Synthesizing {lang_name} speech...")
+    storage.add_log(job_id, f"[{target_language.upper()}] Starting Azure TTS synthesis (voice: {voice})...", "INFO")
 
     tts_service = AzureTTSBatchService(
         speech_key=speech_key,
         speech_region=speech_region,
         voice=voice,
         rate=rate,
-        pitch=pitch
+        pitch=pitch,
+        target_language=target_language
     )
 
     def progress_callback(current, total, message):
         """Update progress during TTS generation"""
-        storage.add_log(job_id, f"[TTS {current}/{total}] {message}", "INFO")
+        storage.add_log(job_id, f"[{target_language.upper()}] [TTS {current}/{total}] {message}", "INFO")
 
     try:
         tts_service.generate_audio(
@@ -104,55 +118,18 @@ def generate_tts(
             progress_callback=progress_callback
         )
 
-        storage.mark_step_complete(job_id, "tts_audio", str(tts_audio_path))
+        storage.mark_step_complete(job_id, f"tts_{target_language}", str(tts_audio_path))
 
         # Get audio duration
         duration = tts_audio_path.stat().st_size / (48000 * 2 * 2)  # Rough estimate
-        storage.add_log(job_id, f"✓ TTS audio generated: {tts_audio_path.name}", "INFO")
+        storage.add_log(job_id, f"[{target_language.upper()}] ✓ TTS audio generated: {tts_audio_path.name} (~{duration:.1f}s)", "INFO")
 
-        # Apply studio-quality audio post-processing
-        storage.update_progress(job_id, "generating_tts", 4, message="Applying studio audio processing...")
-        storage.add_log(job_id, "Starting audio post-processing (EQ, compression, LUFS normalization)...", "INFO")
-
-        tts_audio_studio_path = storage.get_artifact_path(job_id, "tts_studio.wav")
-
-        def audio_progress_callback(current, total, message):
-            """Update progress during audio post-processing"""
-            storage.add_log(job_id, f"[Audio PP {current}/{total}] {message}", "INFO")
-
-        try:
-            audio_postprocessing = get_audio_postprocessing(
-                enable_ai_enhance=True,  # Enable Resemble Enhance (AI voice enhancement)
-                enable_denoise=True,  # Enable DeepFilterNet if Resemble not available
-                enable_studio_chain=True,  # Enable EQ + compression + limiter
-                target_lufs=-16.0  # Standard for podcasts/YouTube
-            )
-
-            audio_postprocessing.process_audio(
-                input_wav=tts_audio_path,
-                output_wav=tts_audio_studio_path,
-                progress_callback=audio_progress_callback
-            )
-
-            storage.mark_step_complete(job_id, "tts_audio_studio", str(tts_audio_studio_path))
-            storage.add_log(job_id, f"✓ Studio audio processing complete: {tts_audio_studio_path.name}", "INFO")
-
-            return {
-                "ssml_path": str(ssml_path),
-                "tts_audio_path": str(tts_audio_path),  # Raw TTS
-                "tts_audio_studio_path": str(tts_audio_studio_path),  # Processed (use for rendering)
-                "phonetics_stats": stats
-            }
-
-        except Exception as e:
-            storage.add_log(job_id, f"⚠ Audio post-processing failed: {e}, using raw TTS", "WARNING")
-            # Fallback to raw TTS if post-processing fails
-            return {
-                "ssml_path": str(ssml_path),
-                "tts_audio_path": str(tts_audio_path),
-                "phonetics_stats": stats
-            }
+        return {
+            "ssml_path": str(ssml_path) if ssml_path.exists() else None,
+            "tts_audio_path": str(tts_audio_path),
+            "language": target_language
+        }
 
     except Exception as e:
-        storage.add_log(job_id, f"✗ TTS generation failed: {e}", "ERROR")
-        raise RuntimeError(f"TTS generation failed: {e}")
+        storage.add_log(job_id, f"[{target_language.upper()}] ✗ TTS generation failed: {e}", "ERROR")
+        raise RuntimeError(f"{lang_name} TTS generation failed: {e}")
