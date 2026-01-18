@@ -112,7 +112,7 @@ class YouTubeService:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=60
+                timeout=180  # 3 minutes for slow connections or large subtitle files
             )
 
             # Look for generated subtitle files

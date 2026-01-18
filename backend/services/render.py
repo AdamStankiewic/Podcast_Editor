@@ -355,9 +355,9 @@ class VideoRenderService:
                     # Scale video up by 7% to fill frame better, crop back to original size (centered), apply speed
                     f"[0:v]scale=iw*1.07:ih*1.07,crop={video_width}:{video_height}:(iw-{video_width})/2:(ih-{video_height})/2,setpts={setpts_value}*PTS[v];"
                     # Overlay PNG on top at position 0:0 (top-left corner)
-                    # shortest=1 means overlay ends when shortest input ends
+                    # repeatlast=1 means repeat the last (only) frame of overlay throughout video
                     # format=auto automatically handles alpha channel (RGBA)
-                    f"[v][1:v]overlay=0:0:format=auto:shortest=1"
+                    f"[v][1:v]overlay=0:0:format=auto:repeatlast=1"
                 )
 
                 print(f"Using filter: {filter_complex}")
@@ -365,8 +365,7 @@ class VideoRenderService:
                 cmd = [
                     "ffmpeg", "-y",
                     "-i", str(input_video),
-                    "-loop", "1",  # Loop the overlay image
-                    "-i", str(self.overlay_path),
+                    "-i", str(self.overlay_path),  # Overlay PNG (no -loop needed with repeatlast=1)
                     "-filter_complex", filter_complex,
                     "-an",  # Remove audio
                     "-c:v", self.encoder,
