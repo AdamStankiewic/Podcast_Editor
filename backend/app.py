@@ -100,6 +100,7 @@ async def create_jobs(request: CreateJobRequest):
             url=url,
             status=JobStatus.QUEUED,
             video_id=video_id,
+            languages=request.languages,
             enable_background_music=request.enable_background_music
         )
 

@@ -16,6 +16,7 @@ class JobStatus(str, Enum):
     TRANSCRIBING = "TRANSCRIBING"
     TRANSLATING = "TRANSLATING"
     GENERATING_TTS = "GENERATING_TTS"
+    ENHANCING_AUDIO = "ENHANCING_AUDIO"
     RENDERING = "RENDERING"
     DONE = "DONE"
     ERROR = "ERROR"
@@ -23,12 +24,16 @@ class JobStatus(str, Enum):
 
 class JobArtifacts(BaseModel):
     """Artifacts generated during pipeline execution"""
+    # Shared artifacts (language-independent)
     original_video: Optional[str] = None
-    transcript_de: Optional[str] = None
-    transcript_pl: Optional[str] = None
-    ssml_pl: Optional[str] = None
-    tts_audio: Optional[str] = None
-    final_video: Optional[str] = None
+    transcript_de: Optional[str] = None  # Original German transcript
+
+    # Per-language artifacts (Dict[language_code, file_path])
+    translations: Dict[str, str] = Field(default_factory=dict)  # e.g., {"pl": "path/to/pl.txt", "fr": ...}
+    ssml_files: Dict[str, str] = Field(default_factory=dict)
+    tts_audio: Dict[str, str] = Field(default_factory=dict)
+    enhanced_audio: Dict[str, str] = Field(default_factory=dict)
+    final_videos: Dict[str, str] = Field(default_factory=dict)
 
 
 class JobProgress(BaseModel):
@@ -59,6 +64,7 @@ class Job(BaseModel):
     video_duration: Optional[float] = None
 
     # Options
+    languages: List[str] = Field(default_factory=lambda: ["pl"])  # Output languages (pl, fr, en)
     enable_background_music: bool = False  # Add background music to final video
 
     class Config:
@@ -68,6 +74,7 @@ class Job(BaseModel):
 class CreateJobRequest(BaseModel):
     """Request to create new jobs"""
     urls: List[str] = Field(..., min_items=1, description="List of YouTube URLs")
+    languages: List[str] = Field(default=["pl"], description="Output languages (pl, fr, en)")
     enable_background_music: bool = Field(default=False, description="Add background music (loop.wav) to final video")
 
 

@@ -43,6 +43,40 @@
                     ></textarea>
                 </div>
 
+                <!-- Language Selection -->
+                <div class="mb-4">
+                    <label class="block text-gray-700 font-semibold mb-2">
+                        🌍 Output Languages (select at least one)
+                    </label>
+                    <div class="space-y-2">
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                id="lang-pl"
+                                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                checked
+                            >
+                            <span class="text-gray-700">🇵🇱 Polish (Polski)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                id="lang-fr"
+                                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            >
+                            <span class="text-gray-700">🇫🇷 French (Français)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                id="lang-en"
+                                class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            >
+                            <span class="text-gray-700">🇬🇧 English</span>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="mb-4">
                     <label class="flex items-center space-x-2 cursor-pointer">
                         <input
@@ -96,8 +130,19 @@
             const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u);
             const enableMusic = document.getElementById('enable-music').checked;
 
+            // Collect selected languages
+            const languages = [];
+            if (document.getElementById('lang-pl').checked) languages.push('pl');
+            if (document.getElementById('lang-fr').checked) languages.push('fr');
+            if (document.getElementById('lang-en').checked) languages.push('en');
+
             if (urls.length === 0) {
                 alert('Please enter at least one YouTube URL');
+                return;
+            }
+
+            if (languages.length === 0) {
+                alert('Please select at least one output language');
                 return;
             }
 
@@ -109,6 +154,7 @@
                 },
                 body: JSON.stringify({
                     urls: urls,
+                    languages: languages,
                     enable_background_music: enableMusic
                 })
             })

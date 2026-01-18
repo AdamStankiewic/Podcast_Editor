@@ -9,13 +9,51 @@ from openai import OpenAI
 
 
 class TranslationService:
-    """Handles German to Polish translation with context and length preservation"""
+    """Handles German to target language translation with context and length preservation"""
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini"):
+    # Language configurations: code -> (name, prompts)
+    LANGUAGES = {
+        "pl": {
+            "name": "Polish",
+            "native_name": "Polski",
+            "role": "profesjonalnym lektorem podcastów historycznych. Tłumaczysz niemieckie nagrania na polski",
+            "length_label": "znaków",
+            "context_label": "KONTEKST GLOBALNY",
+            "previous_label": "KONIEC POPRZEDNIEGO FRAGMENTU",
+            "text_label": "TEKST DO TŁUMACZENIA",
+            "response_label": "Odpowiedź (polskie tłumaczenie"
+        },
+        "fr": {
+            "name": "French",
+            "native_name": "Français",
+            "role": "un narrateur professionnel de podcasts historiques. Tu traduis des enregistrements allemands en français",
+            "length_label": "caractères",
+            "context_label": "CONTEXTE GLOBAL",
+            "previous_label": "FIN DU FRAGMENT PRÉCÉDENT",
+            "text_label": "TEXTE À TRADUIRE",
+            "response_label": "Réponse (traduction française"
+        },
+        "en": {
+            "name": "English",
+            "native_name": "English",
+            "role": "a professional historical podcast narrator. You translate German recordings to English",
+            "length_label": "characters",
+            "context_label": "GLOBAL CONTEXT",
+            "previous_label": "END OF PREVIOUS FRAGMENT",
+            "text_label": "TEXT TO TRANSLATE",
+            "response_label": "Response (English translation"
+        }
+    }
+
+    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini", target_language: str = "pl"):
         self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
         self.model = model
+        self.target_language = target_language
         self.chunk_size = 3000  # Characters per chunk
         self.overlap_sentences = 2  # Sentences to overlap for context
+
+        if target_language not in self.LANGUAGES:
+            raise ValueError(f"Unsupported language: {target_language}. Supported: {list(self.LANGUAGES.keys())}")
 
     def translate(self, text: str, progress_callback=None) -> str:
         """
@@ -139,29 +177,20 @@ Odpowiedź (TYLKO streszczenie, po polsku):"""
 
     def _split_sentences(self, text: str) -> List[str]:
         """Split text into sentences"""
-        # Simple sentence splitter for German/Polish
+        # Simple sentence splitter for German and target languages
         sentences = re.split(r'(?<=[.!?])\s+', text)
         return [s.strip() for s in sentences if s.strip()]
 
-    def _translate_chunk(
-        self,
-        chunk: str,
-        global_context: str,
-        previous_ending: str,
-        chunk_index: int,
-        total_chunks: int
-    ) -> str:
-        """Translate a single chunk with context and strict length matching"""
+    def _get_system_prompt(self, target_length: int, min_length: int, max_length: int) -> str:
+        """Generate language-specific system prompt"""
+        lang_cfg = self.LANGUAGES[self.target_language]
 
-        target_length = len(chunk)
-        min_length = int(target_length * 0.85)
-        max_length = int(target_length * 1.15)
-
-        system_prompt = f"""Jesteś profesjonalnym lektorem podcastów historycznych. Tłumaczysz niemieckie nagrania na polski.
+        if self.target_language == "pl":
+            return f"""Jesteś {lang_cfg['role']}.
 
 KRYTYCZNE WYMAGANIE - DŁUGOŚĆ TEKSTU:
-- Oryginalny tekst: {target_length} znaków
-- Twoje tłumaczenie MUSI mieć: {min_length}-{max_length} znaków
+- Oryginalny tekst: {target_length} {lang_cfg['length_label']}
+- Twoje tłumaczenie MUSI mieć: {min_length}-{max_length} {lang_cfg['length_label']}
 - Jeśli tłumaczenie jest za krótkie, rozwiń szczegóły, dodaj opisowe przymiotniki, rozbuduj narrację
 - Jeśli jest za długie, skróć niepotrzebne słowa zachowując wszystkie fakty
 
@@ -194,17 +223,111 @@ NIGDY NIE:
 - Zmieniaj dat, liczb, nazwisk
 - Twórz sztucznych powtórzeń"""
 
-        # Build context
-        context_parts = [f"KONTEKST GLOBALNY:\n{global_context}"]
+        elif self.target_language == "fr":
+            return f"""Vous êtes {lang_cfg['role']}.
+
+EXIGENCE CRITIQUE - LONGUEUR DU TEXTE:
+- Texte original: {target_length} {lang_cfg['length_label']}
+- Votre traduction DOIT avoir: {min_length}-{max_length} {lang_cfg['length_label']}
+- Si la traduction est trop courte, développez les détails, ajoutez des adjectifs descriptifs, enrichissez la narration
+- Si elle est trop longue, raccourcissez les mots inutiles en conservant tous les faits
+
+CONSERVEZ:
+1. TOUS les faits, dates, chiffres, noms (sans en inventer de nouveaux!)
+2. Le ton calme et documentaire de la narration
+3. La fluidité et le naturel de la langue française
+4. La chronologie et la logique des événements
+
+NOMS PROPRES:
+- Traduisez les noms géographiques/historiques en français: "Seidenstraße" → "Route de la Soie", "Schwarzes Meer" → "Mer Noire"
+- Gardez les noms de personnes dans l'original: "Napoleon Bonaparte" → "Napoléon Bonaparte"
+- Si le nom a une traduction française établie, utilisez-la
+
+CHIFFRES ET DATES - ÉCRIVEZ EN LETTRES:
+- Années: "1945" → "mille neuf cent quarante-cinq" ou "l'année mille neuf cent quarante-cinq"
+- Nombres: "500 soldats" → "cinq cents soldats"
+- Dates: "15 mai 1945" → "le quinze mai mille neuf cent quarante-cinq"
+- Chiffres romains: "XVIIe siècle" → "dix-septième siècle", "XXe siècle" → "vingtième siècle", "IIe guerre" → "Seconde Guerre"
+- Exceptions: Si dans le texte original le nombre est un chiffre (par ex. dans "Groupe 47"), gardez le chiffre
+
+TECHNIQUE D'EXPANSION (quand le texte est trop court):
+- Ajoutez des adjectifs descriptifs (par ex. "bataille" → "bataille acharnée", "roi" → "roi influent")
+- Développez les raccourcis de pensée (par ex. "alors" → "à cette période tumultueuse")
+- Utilisez des phrases plus complètes (par ex. "en 1945" → "en cette année mémorable de 1945")
+- Décrivez le contexte sans ajouter de faits (par ex. "Hitler" → "le dictateur allemand Hitler")
+
+NE JAMAIS:
+- Ajouter des faits qui ne sont pas dans l'original
+- Changer les dates, chiffres, noms de famille
+- Créer des répétitions artificielles"""
+
+        else:  # en
+            return f"""You are {lang_cfg['role']}.
+
+CRITICAL REQUIREMENT - TEXT LENGTH:
+- Original text: {target_length} {lang_cfg['length_label']}
+- Your translation MUST be: {min_length}-{max_length} {lang_cfg['length_label']}
+- If translation is too short, expand details, add descriptive adjectives, enrich narration
+- If too long, trim unnecessary words while keeping all facts
+
+PRESERVE:
+1. ALL facts, dates, numbers, names (without inventing new ones!)
+2. Calm, documentary narration tone
+3. Fluidity and naturalness of English language
+4. Chronology and logic of events
+
+PROPER NOUNS:
+- Translate geographic/historical names to English: "Seidenstraße" → "Silk Road", "Schwarzes Meer" → "Black Sea"
+- Keep person names in original: "Napoleon Bonaparte" → "Napoleon Bonaparte"
+- If the name has an established English translation, use it
+
+NUMBERS AND DATES - SPELL OUT:
+- Years: "1945" → "nineteen forty-five" or "the year nineteen forty-five"
+- Numbers: "500 soldiers" → "five hundred soldiers"
+- Dates: "May 15, 1945" → "the fifteenth of May, nineteen forty-five"
+- Roman numerals: "XVII century" → "seventeenth century", "XX century" → "twentieth century", "WWII" → "Second World War"
+- Exceptions: If in the original text the number is a digit (e.g. in "Group 47"), keep the digit
+
+EXPANSION TECHNIQUE (when text is too short):
+- Add descriptive adjectives (e.g. "battle" → "fierce battle", "king" → "influential king")
+- Expand mental shortcuts (e.g. "then" → "in that turbulent period")
+- Use fuller phrases (e.g. "in 1945" → "in the memorable year of 1945")
+- Describe context without adding facts (e.g. "Hitler" → "German dictator Hitler")
+
+NEVER:
+- Add facts not in the original
+- Change dates, numbers, surnames
+- Create artificial repetitions"""
+
+    def _translate_chunk(
+        self,
+        chunk: str,
+        global_context: str,
+        previous_ending: str,
+        chunk_index: int,
+        total_chunks: int
+    ) -> str:
+        """Translate a single chunk with context and strict length matching"""
+
+        target_length = len(chunk)
+        min_length = int(target_length * 0.85)
+        max_length = int(target_length * 1.15)
+
+        # Use language-specific system prompt
+        system_prompt = self._get_system_prompt(target_length, min_length, max_length)
+
+        # Build context with language-specific labels
+        lang_cfg = self.LANGUAGES[self.target_language]
+        context_parts = [f"{lang_cfg['context_label']}:\n{global_context}"]
 
         if previous_ending:
-            context_parts.append(f"\nKONIEC POPRZEDNIEGO FRAGMENTU:\n{previous_ending}")
+            context_parts.append(f"\n{lang_cfg['previous_label']}:\n{previous_ending}")
 
-        context_parts.append(f"\n\nTo jest fragment {chunk_index + 1} z {total_chunks}.")
-        context_parts.append(f"\nTEKST DO TŁUMACZENIA ({len(chunk)} znaków, cel: {min_length}-{max_length} znaków):\n{chunk}")
+        context_parts.append(f"\n\nFragment {chunk_index + 1}/{total_chunks}.")
+        context_parts.append(f"\n{lang_cfg['text_label']} ({len(chunk)} {lang_cfg['length_label']}, target: {min_length}-{max_length} {lang_cfg['length_label']}):\n{chunk}")
 
         user_prompt = "\n".join(context_parts)
-        user_prompt += f"\n\nOdpowiedź (polskie tłumaczenie o długości {min_length}-{max_length} znaków, bez komentarzy):"
+        user_prompt += f"\n\n{lang_cfg['response_label']} {min_length}-{max_length} {lang_cfg['length_label']}, no comments):"
 
         max_retries = 2
         for attempt in range(max_retries):

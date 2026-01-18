@@ -22,14 +22,23 @@ class AzureTTSBatchService:
         speech_key: str,
         speech_region: str,
         voice: str = "en-GB-Ollie:DragonHDLatestNeural",
-        rate: str = "-8%",
-        pitch: str = "0%"
+        rate: str = "-10%",
+        pitch: str = "0%",
+        target_language: str = "pl"
     ):
         self.speech_key = speech_key
         self.speech_region = speech_region
         self.voice = voice
         self.rate = rate
         self.pitch = pitch
+        self.target_language = target_language
+
+        # Language-to-SSML mapping for multilingual voices
+        self.lang_ssml = {
+            "pl": "pl-PL",
+            "fr": "fr-FR",
+            "en": "en-GB"
+        }
 
         # Azure configuration
         self.max_chars = 3000  # Chunk size for SSML
@@ -226,7 +235,24 @@ class AzureTTSBatchService:
             # Escape XML entities for plain text
             chunk = self._escape_ssml(chunk)
 
-        return f"""<speak version="1.0" xml:lang="en-GB" xmlns="http://www.w3.org/2001/10/synthesis">
+        # For multilingual voices (OllieMultilingual), use <lang> tag
+        is_multilingual = "Multilingual" in self.voice
+        ssml_lang = self.lang_ssml.get(self.target_language, "en-GB")
+
+        if is_multilingual:
+            # Wrap content in <lang> tag for multilingual voices
+            return f"""<speak version="1.0" xml:lang="{ssml_lang}" xmlns="http://www.w3.org/2001/10/synthesis">
+  <voice name="{self.voice}">
+    <lang xml:lang="{ssml_lang}">
+      <prosody rate="{self.rate}" pitch="{self.pitch}">
+        {chunk}
+      </prosody>
+    </lang>
+  </voice>
+</speak>"""
+        else:
+            # Native voice - no need for <lang> tag
+            return f"""<speak version="1.0" xml:lang="{ssml_lang}" xmlns="http://www.w3.org/2001/10/synthesis">
   <voice name="{self.voice}">
     <prosody rate="{self.rate}" pitch="{self.pitch}">
       {chunk}
