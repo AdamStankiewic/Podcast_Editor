@@ -13,6 +13,16 @@ load_dotenv()
 SPEECH_KEY = os.getenv("SPEECH_KEY")
 SPEECH_REGION = os.getenv("SPEECH_REGION")
 
+if not SPEECH_KEY or not SPEECH_REGION:
+    print("❌ ERROR: Azure Speech credentials not found!")
+    print("\nPlease create a .env file with your Azure credentials:")
+    print("  SPEECH_KEY=your_azure_speech_key")
+    print("  SPEECH_REGION=northeurope")
+    print("\nOr export them as environment variables:")
+    print("  export SPEECH_KEY='your_key'")
+    print("  export SPEECH_REGION='northeurope'")
+    exit(1)
+
 # Test text (krótki fragment o Jedwabnym Szlaku)
 TEST_TEXT_FR = """
 Bien avant que la Route de la Soie ne soit établie comme réseau commercial historique,
@@ -68,9 +78,10 @@ VOICES_TO_TEST = {
 def create_ssml(voice: str, language: str, text: str, use_hd: bool = True) -> str:
     """Tworzy SSML dla danego głosu"""
 
-    # Spróbuj użyć DragonHDLatestNeural jeśli dostępne
+    # Dla Multilingual NIE używaj HD (już jest wysokiej jakości)
+    # Dla innych głosów spróbuj HD tylko jeśli use_hd=True
     if use_hd and "Multilingual" not in voice:
-        # Próba z DragonHDLatestNeural
+        # Próba z DragonHDLatestNeural (może nie działać dla wszystkich głosów)
         voice_hd = f"{voice.replace('Neural', '')}:DragonHDLatestNeural"
     else:
         voice_hd = voice
@@ -139,7 +150,8 @@ def synthesize_voice(voice_name: str, config: dict, output_dir: Path):
                 print(f"  Error: {details.error_details}")
 
             # Jeśli HD nie działa, spróbuj bez HD
-            if try_hd and "not found" in str(details.error_details).lower():
+            error_msg = str(details.error_details).lower()
+            if try_hd and ("not found" in error_msg or "unsupported" in error_msg):
                 print(f"  DragonHD not available, trying standard Neural...")
                 try_hd = False
             else:
