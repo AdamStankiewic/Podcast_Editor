@@ -99,7 +99,8 @@ async def create_jobs(request: CreateJobRequest):
             id=job_id,
             url=url,
             status=JobStatus.QUEUED,
-            video_id=video_id
+            video_id=video_id,
+            enable_background_music=request.enable_background_music
         )
 
         # Save job state

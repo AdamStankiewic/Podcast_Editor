@@ -299,7 +299,8 @@ class AzureTTSBatchService:
                 "ffmpeg", "-y",
                 "-f", "concat", "-safe", "0",
                 "-i", str(files_txt),
-                "-c", "copy",  # Copy without re-encoding (zero artifacts)
+                # Apply noise gate to remove "pierdzenie" artifacts from TTS
+                "-af", "agate=threshold=-40dB:ratio=2:attack=5:release=50",
                 str(output_wav)
             ], check=True, capture_output=True)
 

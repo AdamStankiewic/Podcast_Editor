@@ -64,7 +64,8 @@ class VideoRenderService:
         original_video: Path,
         tts_audio: Path,
         output_video: Path,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        enable_background_music: bool = False
     ) -> Path:
         """
         Render final video with:
@@ -104,19 +105,26 @@ class VideoRenderService:
             speed_ratio = self._calculate_speed_ratio(video_duration, audio_duration)
             print(f"Speed ratio: {speed_ratio:.3f}x")
 
-            # Step 3: Create background music loop
-            if progress_callback:
-                progress_callback(3, 6, "Creating music loop...")
+            # Step 3-4: Background music (optional)
+            if enable_background_music:
+                # Step 3: Create background music loop
+                if progress_callback:
+                    progress_callback(3, 6, "Creating music loop...")
 
-            music_loop = temp_dir / "music_loop.wav"
-            self._create_music_loop(audio_duration, music_loop)
+                music_loop = temp_dir / "music_loop.wav"
+                self._create_music_loop(audio_duration, music_loop)
 
-            # Step 4: Mix audio with ducking
-            if progress_callback:
-                progress_callback(4, 6, "Mixing audio with ducking...")
+                # Step 4: Mix audio with ducking
+                if progress_callback:
+                    progress_callback(4, 6, "Mixing audio with ducking...")
 
-            mixed_audio = temp_dir / "mixed_audio.wav"
-            self._mix_audio_with_ducking(tts_audio, music_loop, mixed_audio)
+                mixed_audio = temp_dir / "mixed_audio.wav"
+                self._mix_audio_with_ducking(tts_audio, music_loop, mixed_audio)
+            else:
+                # No background music - use TTS audio directly
+                if progress_callback:
+                    progress_callback(3, 6, "Skipping background music (disabled)...")
+                mixed_audio = tts_audio  # Use TTS directly without music
 
             # Step 5: Process video (speed + overlay)
             if progress_callback:
@@ -247,8 +255,8 @@ class VideoRenderService:
             # - Music is background (index 1)
             # - Music gets compressed when TTS has signal
             filter_complex = (
-                # Lower music base volume to -24dB (quieter than before)
-                "[1:a]volume=-24dB[music_low];"
+                # Lower music base volume to -17dB (more audible than before)
+                "[1:a]volume=-17dB[music_low];"
                 # Apply sidechain compression (music ducks under voice)
                 "[music_low][0:a]sidechaincompress="
                 "threshold=0.02:ratio=6:attack=5:release=250:makeup=2[bg];"

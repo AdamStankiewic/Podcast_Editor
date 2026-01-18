@@ -99,7 +99,8 @@ def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = N
         render_result = render_final_video(
             job_id=job_id,
             overlay_path=os.getenv("OVERLAY_PATH", "./assets/overlay.png"),
-            loop_audio_path=os.getenv("LOOP_AUDIO_PATH", "./assets/loop.wav")
+            loop_audio_path=os.getenv("LOOP_AUDIO_PATH", "./assets/loop.wav"),
+            enable_background_music=job.enable_background_music
         )
 
         # DONE

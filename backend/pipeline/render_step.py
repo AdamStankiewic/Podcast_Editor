@@ -15,7 +15,8 @@ from backend.services.storage import get_storage
 def render_final_video(
     job_id: str,
     overlay_path: str = "./assets/overlay.png",
-    loop_audio_path: str = "./assets/loop.wav"
+    loop_audio_path: str = "./assets/loop.wav",
+    enable_background_music: bool = False
 ) -> dict:
     """
     Render final video with Polish narration
@@ -74,7 +75,8 @@ def render_final_video(
             original_video=original_video_path,
             tts_audio=tts_audio_path,
             output_video=final_video_path,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            enable_background_music=enable_background_music
         )
 
         storage.mark_step_complete(job_id, "final_video", str(final_video_path))

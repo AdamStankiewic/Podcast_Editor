@@ -58,6 +58,9 @@ class Job(BaseModel):
     video_title: Optional[str] = None
     video_duration: Optional[float] = None
 
+    # Options
+    enable_background_music: bool = False  # Add background music to final video
+
     class Config:
         use_enum_values = True
 
@@ -65,6 +68,7 @@ class Job(BaseModel):
 class CreateJobRequest(BaseModel):
     """Request to create new jobs"""
     urls: List[str] = Field(..., min_items=1, description="List of YouTube URLs")
+    enable_background_music: bool = Field(default=False, description="Add background music (loop.wav) to final video")
 
 
 class JobResponse(BaseModel):
