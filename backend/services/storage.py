@@ -101,19 +101,36 @@ class StorageService:
         """Mark a pipeline step as complete by saving artifact reference"""
         job = self.load_job_state(job_id)
         if job:
-            # Update artifacts
+            # Update artifacts - support both legacy and multi-language patterns
             if artifact_name == "original_video":
                 job.artifacts.original_video = artifact_path
             elif artifact_name == "transcript_de":
                 job.artifacts.transcript_de = artifact_path
+            # Legacy single-language artifacts
             elif artifact_name == "transcript_pl":
-                job.artifacts.transcript_pl = artifact_path
+                job.artifacts.translations["pl"] = artifact_path
             elif artifact_name == "ssml_pl":
-                job.artifacts.ssml_pl = artifact_path
+                job.artifacts.ssml_files["pl"] = artifact_path
             elif artifact_name == "tts_audio":
-                job.artifacts.tts_audio = artifact_path
+                job.artifacts.tts_audio["pl"] = artifact_path
             elif artifact_name == "final_video":
-                job.artifacts.final_video = artifact_path
+                job.artifacts.final_videos["pl"] = artifact_path
+            # Multi-language artifacts (transcript_{lang}, tts_{lang}, etc.)
+            elif artifact_name.startswith("transcript_") and artifact_name != "transcript_de":
+                lang = artifact_name.split("_")[1]
+                job.artifacts.translations[lang] = artifact_path
+            elif artifact_name.startswith("ssml_"):
+                lang = artifact_name.split("_")[1]
+                job.artifacts.ssml_files[lang] = artifact_path
+            elif artifact_name.startswith("tts_"):
+                lang = artifact_name.split("_")[1]
+                job.artifacts.tts_audio[lang] = artifact_path
+            elif artifact_name.startswith("enhanced_"):
+                lang = artifact_name.split("_")[1]
+                job.artifacts.enhanced_audio[lang] = artifact_path
+            elif artifact_name.startswith("final_"):
+                lang = artifact_name.split("_")[1]
+                job.artifacts.final_videos[lang] = artifact_path
 
             self.save_job_state(job)
 
