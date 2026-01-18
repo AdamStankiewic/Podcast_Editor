@@ -149,8 +149,13 @@ async def get_job_logs(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/download")
-async def download_final_video(job_id: str):
-    """Download final rendered video"""
+async def download_final_video(job_id: str, language: str = "pl"):
+    """
+    Download final rendered video for specified language
+
+    Query params:
+        language: Language code (pl, fr, en). Defaults to pl.
+    """
     storage = get_storage()
     job = storage.load_job_state(job_id)
 
@@ -160,15 +165,27 @@ async def download_final_video(job_id: str):
     if job.status != JobStatus.DONE:
         raise HTTPException(status_code=400, detail="Job not completed yet")
 
-    final_video_path = Path(job.artifacts.final_video)
+    # Get video path for requested language
+    if language not in job.artifacts.final_videos:
+        available_langs = ", ".join(job.artifacts.final_videos.keys())
+        raise HTTPException(
+            status_code=404,
+            detail=f"Video for language '{language}' not found. Available: {available_langs}"
+        )
+
+    final_video_path = Path(job.artifacts.final_videos[language])
 
     if not final_video_path.exists():
-        raise HTTPException(status_code=404, detail="Final video file not found")
+        raise HTTPException(status_code=404, detail=f"Video file not found: {final_video_path}")
+
+    # Language names for filename
+    lang_names = {"pl": "polish", "fr": "french", "en": "english"}
+    lang_name = lang_names.get(language, language)
 
     return FileResponse(
         path=str(final_video_path),
         media_type="video/mp4",
-        filename=f"{job.video_id}_polish.mp4"
+        filename=f"{job.video_id}_{lang_name}.mp4"
     )
 
 
