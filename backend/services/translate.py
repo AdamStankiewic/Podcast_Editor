@@ -171,6 +171,11 @@ ZACHOWAJ:
 3. Płynność i naturalność polskiego języka
 4. Chronologię i logikę wydarzeń
 
+NAZWY WŁASNE:
+- Nazwy geograficzne/historyczne tłumacz na polski: "Seidenstraße" → "Jedwabny Szlak", "Schwarzes Meer" → "Morze Czarne"
+- Nazwiska osób zostaw w oryginale: "Napoleon Bonaparte" → "Napoleon Bonaparte"
+- Jeśli nazwa ma ugruntowane polskie tłumaczenie, użyj go
+
 LICZBY I DATY - PISZ SŁOWNIE:
 - Lata: "1945" → "tysiąc dziewięćset czterdzieści pięć" lub "rok tysiąc dziewięćset czterdzieści pięć"
 - Liczby: "500 żołnierzy" → "pięćset żołnierzy"

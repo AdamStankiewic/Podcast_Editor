@@ -362,10 +362,12 @@ class VideoRenderService:
                 filter_complex = (
                     # Scale video up by 7% to fill frame better, crop back to original size (centered), apply speed
                     f"[0:v]scale=iw*1.07:ih*1.07,crop={video_width}:{video_height}:(iw-{video_width})/2:(ih-{video_height})/2,setpts={setpts_value}*PTS[v];"
-                    # Overlay PNG on top at position 0:0 (top-left corner)
+                    # Scale overlay PNG to match video dimensions (handles any resolution)
+                    f"[1:v]scale={video_width}:{video_height}[overlay];"
+                    # Overlay on top at position 0:0 (top-left corner)
                     # repeatlast=1 means repeat the last (only) frame of overlay throughout video
                     # format=auto automatically handles alpha channel (RGBA)
-                    f"[v][1:v]overlay=0:0:format=auto:repeatlast=1"
+                    f"[v][overlay]overlay=0:0:format=auto:repeatlast=1"
                 )
 
                 print(f"Using filter: {filter_complex}")
