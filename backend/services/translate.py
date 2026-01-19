@@ -426,7 +426,11 @@ NEVER:
 
     def _expand_translation(self, translation: str, original: str, min_length: int, max_length: int) -> str:
         """Expand translation to match target length without adding facts"""
-        prompt = f"""Rozbuduj poniższe tłumaczenie, aby osiągnąć długość {min_length}-{max_length} znaków (obecnie: {len(translation)} znaków).
+
+        # Language-specific expansion prompts
+        if self.target_language == "pl":
+            system_prompt = "Jesteś redaktorem rozszerzającym teksty bez dodawania faktów."
+            prompt = f"""Rozbuduj poniższe tłumaczenie, aby osiągnąć długość {min_length}-{max_length} znaków (obecnie: {len(translation)} znaków).
 
 DOZWOLONE TECHNIKI:
 - Opisowe przymiotniki (np. "król" → "potężny król")
@@ -447,11 +451,57 @@ AKTUALNE TŁUMACZENIE:
 
 ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
 
+        elif self.target_language == "fr":
+            system_prompt = "Vous êtes un éditeur qui développe des textes sans ajouter de faits."
+            prompt = f"""Développez la traduction suivante pour atteindre {min_length}-{max_length} caractères (actuellement: {len(translation)} caractères).
+
+TECHNIQUES AUTORISÉES:
+- Adjectifs descriptifs (ex: "roi" → "roi puissant")
+- Phrases plus complètes (ex: "alors" → "à cette époque")
+- Contexte sans faits (ex: "Hitler" → "le dictateur allemand Hitler")
+- Développement des raccourcis mentaux
+
+INTERDIT:
+- Ajouter de nouveaux faits, dates, noms
+- Changer le contenu substantiel
+- Répétitions artificielles
+
+ALLEMAND ORIGINAL (pour contexte):
+{original}
+
+TRADUCTION ACTUELLE:
+{translation}
+
+TRADUCTION DÉVELOPPÉE ({min_length}-{max_length} caractères):"""
+
+        else:  # en
+            system_prompt = "You are an editor who expands texts without adding facts."
+            prompt = f"""Expand the following translation to reach {min_length}-{max_length} characters (currently: {len(translation)} characters).
+
+ALLOWED TECHNIQUES:
+- Descriptive adjectives (e.g., "king" → "powerful king")
+- Fuller phrases (e.g., "then" → "in that period")
+- Context without facts (e.g., "Hitler" → "German dictator Hitler")
+- Expansion of mental shortcuts
+
+FORBIDDEN:
+- Adding new facts, dates, names
+- Changing substantive content
+- Artificial repetitions
+
+ORIGINAL GERMAN (for context):
+{original}
+
+CURRENT TRANSLATION:
+{translation}
+
+EXPANDED TRANSLATION ({min_length}-{max_length} characters):"""
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "Jesteś redaktorem rozszerzającym teksty bez dodawania faktów."},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.5,
@@ -530,7 +580,10 @@ ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
             print(f"Info: Skipping editorial pass (text too long: {len(text)} chars)")
             return text
 
-        prompt = f"""Jesteś redaktorem tekstów. Popraw poniższy tekst usuwając:
+        # Language-specific editorial prompts
+        if self.target_language == "pl":
+            system_prompt = "Jesteś redaktorem podcastów historycznych."
+            prompt = f"""Jesteś redaktorem tekstów. Popraw poniższy tekst usuwając:
 - Powtórzenia tych samych informacji
 - Nienaturalne konstrukcje zdaniowe
 - Zbędne słowa
@@ -546,6 +599,42 @@ TEKST:
 
 POPRAWIONY TEKST (bez komentarzy):"""
 
+        elif self.target_language == "fr":
+            system_prompt = "Vous êtes un éditeur de podcasts historiques."
+            prompt = f"""Vous êtes un éditeur de textes. Corrigez le texte suivant en supprimant:
+- Répétitions des mêmes informations
+- Constructions de phrases non naturelles
+- Mots inutiles
+
+IMPORTANT:
+- NE changez PAS les faits, dates, noms, chiffres
+- N'ajoutez PAS de nouvelles informations
+- Conservez la longueur du texte (±5%)
+- Corrigez uniquement la fluidité de la narration
+
+TEXTE:
+{text}
+
+TEXTE CORRIGÉ (sans commentaires):"""
+
+        else:  # en
+            system_prompt = "You are a historical podcast editor."
+            prompt = f"""You are a text editor. Correct the following text by removing:
+- Repetitions of the same information
+- Unnatural sentence constructions
+- Unnecessary words
+
+IMPORTANT:
+- DO NOT change any facts, dates, names, numbers
+- DO NOT add new information
+- Maintain text length (±5%)
+- Only correct narrative flow
+
+TEXT:
+{text}
+
+CORRECTED TEXT (no comments):"""
+
         try:
             # Calculate safe max_tokens (GPT-4o-mini limit: 16384)
             # Assume input uses ~len(text)/3 tokens, leave room for output
@@ -555,7 +644,7 @@ POPRAWIONY TEKST (bez komentarzy):"""
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "Jesteś redaktorem podcastów historycznych."},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
