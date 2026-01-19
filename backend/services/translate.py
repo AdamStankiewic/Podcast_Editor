@@ -558,6 +558,13 @@ POPRAWIONY TEKST (bez komentarzy):"""
         Returns:
             Corrected translation with improved quality
         """
+        # CRITICAL: Skip AI quality check for very long texts to avoid truncation and data loss
+        # The prompt uses [:40000] truncation which causes partial text to be returned
+        if len(translated_text) > 35000:
+            print(f"ℹ️  Skipping AI quality check (text too long: {len(translated_text)} chars)")
+            print(f"   Quality checks are limited to 35K chars to prevent data loss from truncation")
+            return translated_text
+
         # For very long texts, use sample validation to avoid token limits
         original_sample = original_german[:5000] if len(original_german) > 5000 else original_german
 
@@ -607,6 +614,15 @@ POPRAWIONY TEKST (bez komentarzy):"""
                         print(f"    - {issue}")
                     if explanation:
                         print(f"  Explanation: {explanation[:200]}...")
+
+                    # CRITICAL FIX: Check if corrected text was truncated
+                    # If corrected text is significantly shorter, it means GPT only received a truncated version
+                    # In that case, return the original to avoid data loss
+                    if len(corrected) < len(translated_text) * 0.9:
+                        print(f"⚠ WARNING: Corrected text is {len(corrected)} chars vs original {len(translated_text)} chars")
+                        print(f"  This indicates truncation occurred. Keeping original text to prevent data loss.")
+                        return translated_text
+
                     return corrected
                 else:
                     print(f"✓ AI Quality Check passed - no major issues found")
