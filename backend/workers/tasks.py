@@ -1,5 +1,6 @@
 """
 Celery tasks for podcast processing pipeline with multi-language support
+New architecture: Separate tasks per language with dynamic time limits
 """
 import os
 from datetime import datetime
@@ -15,17 +16,172 @@ from backend.pipeline.enhance_step import enhance_audio
 from backend.pipeline.render_step import render_final_video
 
 
+def calculate_language_task_limits(video_duration: float) -> dict:
+    """
+    Calculate dynamic time limits for language processing task based on video duration
+
+    Time breakdown per language:
+    - Translation + TTS: ~40 min (fixed overhead)
+    - Enhance (Resemble): video_duration * 0.25 (max 40 min for very long videos)
+    - Render (FFmpeg NVENC): video_duration * 1.5 (3.4x realtime = 0.44x duration)
+
+    Args:
+        video_duration: Video duration in seconds
+
+    Returns:
+        dict with soft_limit and hard_limit in seconds
+
+    Examples:
+        10 min video: 40 + 2.5 + 15 = 58 min
+        1h video: 40 + 15 + 90 = 145 min (2.4h)
+        2h video: 40 + 30 + 180 = 250 min (4.2h)
+    """
+    # Fixed overhead for translation + TTS (in seconds)
+    base_time = 2400  # 40 minutes
+
+    # AI enhancement time (Resemble Enhance on GPU)
+    # Typically 0.15-0.25x video duration, capped at 40 min
+    enhance_time = min(video_duration * 0.25, 2400)
+
+    # Video rendering time (FFmpeg NVENC)
+    # Observed: ~3.4x realtime speed = 0.44x duration (conservative: 1.5x)
+    render_time = video_duration * 1.5
+
+    # Total time for one language
+    total_time = base_time + enhance_time + render_time
+
+    # Add 10% safety margin for soft limit
+    soft_limit = int(total_time * 1.1)
+
+    # Hard limit: 20% margin
+    hard_limit = int(total_time * 1.2)
+
+    return {
+        'soft_limit': soft_limit,
+        'hard_limit': hard_limit,
+        'estimated_time': int(total_time)
+    }
+
+
+@celery_app.task(bind=True, name="process_language")
+def process_language_task(self, job_id: str, language: str, video_duration: float):
+    """
+    Process a single language: Translation → TTS → Enhance → Render
+
+    This task has DYNAMIC time limits based on video duration.
+    GPU-intensive operations (Enhance, Render) are isolated per language.
+
+    Args:
+        job_id: Job identifier
+        language: Target language code (pl, fr, en)
+        video_duration: Video duration in seconds (for limit calculation)
+
+    Returns:
+        dict with status, language, and final_video_path or error
+    """
+    storage = get_storage()
+
+    # Calculate and log time limits
+    limits = calculate_language_task_limits(video_duration)
+    storage.add_log(
+        job_id,
+        f"[{language.upper()}] Task limits: {limits['estimated_time']//60} min estimated, "
+        f"{limits['soft_limit']//60} min soft, {limits['hard_limit']//60} min hard",
+        "INFO"
+    )
+
+    # Override task time limits dynamically
+    self.time_limit = limits['hard_limit']
+    self.soft_time_limit = limits['soft_limit']
+
+    try:
+        # Language display name
+        lang_names = {"pl": "Polish", "fr": "French", "en": "English"}
+        lang_name = lang_names.get(language, language.upper())
+
+        storage.add_log(job_id, "=" * 60, "INFO")
+        storage.add_log(job_id, f"🔷 Processing {lang_name} ({language.upper()})", "INFO")
+        storage.add_log(job_id, "=" * 60, "INFO")
+
+        # STEP 1: Translation
+        storage.add_log(job_id, f"[{language.upper()}] Step 1/4: Translating to {lang_name}...", "INFO")
+        translate_result = translate_transcript(
+            job_id=job_id,
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            target_language=language
+        )
+        storage.add_log(job_id, f"[{language.upper()}] ✓ Translation complete", "INFO")
+
+        # STEP 2: TTS Generation
+        storage.add_log(job_id, f"[{language.upper()}] Step 2/4: Generating TTS audio...", "INFO")
+        tts_result = generate_tts(
+            job_id=job_id,
+            speech_key=os.getenv("SPEECH_KEY"),
+            speech_region=os.getenv("SPEECH_REGION"),
+            voice=os.getenv("TTS_VOICE", "en-GB-OllieMultilingualNeural"),
+            rate=os.getenv("TTS_RATE", "-10%"),
+            pitch=os.getenv("TTS_PITCH", "0%"),
+            target_language=language,
+            pronunciations_csv=os.getenv("PRONUNCIATIONS_CSV", "./pronunciations.csv")
+        )
+        storage.add_log(job_id, f"[{language.upper()}] ✓ TTS complete", "INFO")
+
+        # STEP 3: Audio Enhancement (GPU - Resemble Enhance)
+        storage.add_log(job_id, f"[{language.upper()}] Step 3/4: Enhancing audio (GPU)...", "INFO")
+        enhance_result = enhance_audio(
+            job_id=job_id,
+            target_language=language
+        )
+        storage.add_log(job_id, f"[{language.upper()}] ✓ Audio enhancement complete", "INFO")
+
+        # STEP 4: Video Rendering (GPU - NVENC)
+        storage.add_log(job_id, f"[{language.upper()}] Step 4/4: Rendering final video (GPU)...", "INFO")
+        render_result = render_final_video(
+            job_id=job_id,
+            target_language=language,
+            overlay_path=os.getenv("OVERLAY_PATH", "./assets/overlay.png"),
+            loop_audio_path=os.getenv("LOOP_AUDIO_PATH", "./assets/loop.wav"),
+            enable_background_music=storage.load_job_state(job_id).enable_background_music
+        )
+        storage.add_log(job_id, f"[{language.upper()}] ✓ Video rendering complete", "INFO")
+
+        storage.add_log(job_id, "=" * 60, "INFO")
+        storage.add_log(job_id, f"✅ {lang_name} processing COMPLETE!", "INFO")
+        storage.add_log(job_id, f"   Output: {render_result['final_video_path']}", "INFO")
+        storage.add_log(job_id, "=" * 60, "INFO")
+
+        return {
+            "status": "success",
+            "language": language,
+            "final_video_path": render_result["final_video_path"]
+        }
+
+    except Exception as e:
+        # Log error but don't crash - allow other languages to continue
+        storage.add_log(job_id, "=" * 60, "ERROR")
+        storage.add_log(job_id, f"❌ {lang_name} processing FAILED: {e}", "ERROR")
+        storage.add_log(job_id, "=" * 60, "ERROR")
+
+        return {
+            "status": "error",
+            "language": language,
+            "error": str(e)
+        }
+
+
 @celery_app.task(bind=True, name="process_podcast")
 def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = None):
     """
-    Main pipeline task - processes entire podcast conversion with multi-language support
+    Main orchestrator task - coordinates multi-language podcast conversion
 
-    Pipeline architecture (SAFE mode):
-    1. Download + Transcribe (1x shared)
-    2. Translation (parallel for all languages)
-    3. TTS (parallel for all languages)
-    4. Resemble Enhance (sequential: PL→EN→FR to avoid GPU overload)
-    5. Rendering (sequential: PL→EN→FR to avoid CPU/GPU overload)
+    New architecture (SAFE for GPU):
+    1. Download + Transcribe (shared, 1x)
+    2. Spawn sequential language tasks (PL → FR → EN)
+       - Each language task handles: Translate → TTS → Enhance → Render
+       - Sequential execution prevents GPU overload
+       - Dynamic time limits per task based on video duration
+
+    Supports PARTIAL SUCCESS: If some languages fail, others continue
 
     Args:
         job_id: Unique job identifier
@@ -47,14 +203,15 @@ def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = N
 
         storage.add_log(job_id, "=" * 60, "INFO")
         storage.add_log(job_id, f"🌍 Multi-language pipeline: {lang_display}", "INFO")
+        storage.add_log(job_id, f"🔧 New architecture: Sequential language tasks with dynamic limits", "INFO")
         storage.add_log(job_id, "=" * 60, "INFO")
 
-        # STEP 1: Download video (shared)
+        # PHASE 1: Download video (shared for all languages)
         job.status = JobStatus.DOWNLOADING
         storage.save_job_state(job)
 
         storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, "STEP 1/6: Downloading video from YouTube", "INFO")
+        storage.add_log(job_id, "PHASE 1/3: Downloading video from YouTube", "INFO")
         storage.add_log(job_id, "=" * 60, "INFO")
 
         download_result = download_video(job_id, url)
@@ -65,135 +222,140 @@ def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = N
         job.video_duration = download_result.get("duration")
         storage.save_job_state(job)
 
-        # STEP 2: Get transcript (shared)
+        video_duration = job.video_duration or 600  # Default 10 min if unknown
+
+        storage.add_log(
+            job_id,
+            f"✓ Video downloaded: {job.video_title} ({video_duration/60:.1f} minutes)",
+            "INFO"
+        )
+
+        # PHASE 2: Get transcript (shared for all languages)
         job.status = JobStatus.TRANSCRIBING
         storage.save_job_state(job)
 
         storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, "STEP 2/6: Getting German transcript", "INFO")
+        storage.add_log(job_id, "PHASE 2/3: Getting German transcript", "INFO")
         storage.add_log(job_id, "=" * 60, "INFO")
 
         transcript_result = get_transcript(job_id, url, manual_transcript)
 
-        # STEP 3: Translate (PARALLEL for all languages)
-        job.status = JobStatus.TRANSLATING
-        storage.save_job_state(job)
+        storage.add_log(job_id, "✓ Transcript acquired", "INFO")
 
+        # PHASE 3: Process each language SEQUENTIALLY (to avoid GPU overload)
         storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, f"STEP 3/6: Translating to {lang_display} (PARALLEL)", "INFO")
-        storage.add_log(job_id, "=" * 60, "INFO")
-
-        openai_key = os.getenv("OPENAI_API_KEY")
-
-        def translate_language(lang):
-            """Translate to a single language"""
-            return translate_transcript(job_id, openai_api_key=openai_key, target_language=lang)
-
-        # Run translations in parallel
-        with ThreadPoolExecutor(max_workers=len(languages)) as executor:
-            future_to_lang = {executor.submit(translate_language, lang): lang for lang in languages}
-            for future in as_completed(future_to_lang):
-                lang = future_to_lang[future]
-                try:
-                    result = future.result()
-                    storage.add_log(job_id, f"✓ {lang.upper()} translation complete", "INFO")
-                except Exception as e:
-                    storage.add_log(job_id, f"✗ {lang.upper()} translation failed: {e}", "ERROR")
-                    raise
-
-        # STEP 4: Generate TTS (PARALLEL for all languages)
-        job.status = JobStatus.GENERATING_TTS
-        storage.save_job_state(job)
-
-        storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, f"STEP 4/6: Generating TTS for {lang_display} (PARALLEL)", "INFO")
-        storage.add_log(job_id, "=" * 60, "INFO")
-
-        def generate_tts_language(lang):
-            """Generate TTS for a single language"""
-            return generate_tts(
-                job_id=job_id,
-                speech_key=os.getenv("SPEECH_KEY"),
-                speech_region=os.getenv("SPEECH_REGION"),
-                voice=os.getenv("TTS_VOICE", "en-GB-OllieMultilingualNeural"),
-                rate=os.getenv("TTS_RATE", "-10%"),
-                pitch=os.getenv("TTS_PITCH", "0%"),
-                target_language=lang,
-                pronunciations_csv=os.getenv("PRONUNCIATIONS_CSV", "./pronunciations.csv")
-            )
-
-        # Run TTS in parallel
-        with ThreadPoolExecutor(max_workers=len(languages)) as executor:
-            future_to_lang = {executor.submit(generate_tts_language, lang): lang for lang in languages}
-            for future in as_completed(future_to_lang):
-                lang = future_to_lang[future]
-                try:
-                    result = future.result()
-                    storage.add_log(job_id, f"✓ {lang.upper()} TTS complete", "INFO")
-                except Exception as e:
-                    storage.add_log(job_id, f"✗ {lang.upper()} TTS failed: {e}", "ERROR")
-                    raise
-
-        # STEP 5: Enhance audio (SEQUENTIAL to avoid GPU overload)
-        job.status = JobStatus.ENHANCING_AUDIO
-        storage.save_job_state(job)
-
-        storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, f"STEP 5/6: Enhancing audio for {lang_display} (SEQUENTIAL)", "INFO")
-        storage.add_log(job_id, "=" * 60, "INFO")
-
-        for lang in languages:
-            storage.add_log(job_id, f"Starting audio enhancement for {lang.upper()}...", "INFO")
-            enhance_audio(job_id=job_id, target_language=lang)
-            storage.add_log(job_id, f"✓ {lang.upper()} audio enhancement complete", "INFO")
-
-        # STEP 6: Render final videos (SEQUENTIAL to avoid CPU/GPU overload)
-        job.status = JobStatus.RENDERING
-        storage.save_job_state(job)
-
-        storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, f"STEP 6/6: Rendering videos for {lang_display} (SEQUENTIAL)", "INFO")
+        storage.add_log(job_id, f"PHASE 3/3: Processing {len(languages)} languages SEQUENTIALLY", "INFO")
         storage.add_log(job_id, "=" * 60, "INFO")
 
         final_videos = {}
-        for lang in languages:
-            storage.add_log(job_id, f"Starting video rendering for {lang.upper()}...", "INFO")
-            render_result = render_final_video(
-                job_id=job_id,
-                target_language=lang,
-                overlay_path=os.getenv("OVERLAY_PATH", "./assets/overlay.png"),
-                loop_audio_path=os.getenv("LOOP_AUDIO_PATH", "./assets/loop.wav"),
-                enable_background_music=job.enable_background_music
+        language_errors = {}
+
+        for idx, lang in enumerate(languages, 1):
+            storage.add_log(
+                job_id,
+                f"▶ Starting language {idx}/{len(languages)}: {lang.upper()}",
+                "INFO"
             )
-            final_videos[lang] = render_result["final_video_path"]
-            storage.add_log(job_id, f"✓ {lang.upper()} video rendering complete", "INFO")
 
-        # DONE
-        job.status = JobStatus.DONE
+            # Update job status to reflect current language being processed
+            if idx == 1:
+                job.status = JobStatus.TRANSLATING
+            elif idx <= len(languages) / 2:
+                job.status = JobStatus.GENERATING_TTS
+            else:
+                job.status = JobStatus.RENDERING
+            storage.save_job_state(job)
+
+            try:
+                # Call language-specific task (runs synchronously)
+                result = process_language_task(job_id, lang, video_duration)
+
+                if result["status"] == "success":
+                    final_videos[lang] = result["final_video_path"]
+                    storage.add_log(
+                        job_id,
+                        f"✅ {lang.upper()} completed successfully ({idx}/{len(languages)})",
+                        "INFO"
+                    )
+                else:
+                    # Language task returned error but didn't crash
+                    language_errors[lang] = result.get("error", "Unknown error")
+                    storage.add_log(
+                        job_id,
+                        f"⚠ {lang.upper()} failed but continuing with other languages",
+                        "WARNING"
+                    )
+
+            except Exception as e:
+                # Unexpected error in language task
+                language_errors[lang] = str(e)
+                storage.add_log(
+                    job_id,
+                    f"❌ {lang.upper()} crashed: {e}, continuing with other languages",
+                    "ERROR"
+                )
+
+        # FINAL STATUS DETERMINATION
         job.completed_at = datetime.utcnow()
-        storage.update_progress(job_id, "done", 6, message="Processing complete!")
-        storage.save_job_state(job)
 
-        storage.add_log(job_id, "=" * 60, "INFO")
-        storage.add_log(job_id, "✅ PIPELINE COMPLETE!", "INFO")
-        for lang, video_path in final_videos.items():
-            storage.add_log(job_id, f"  [{lang.upper()}] {video_path}", "INFO")
-        storage.add_log(job_id, "=" * 60, "INFO")
+        if language_errors and final_videos:
+            # PARTIAL SUCCESS: Some languages succeeded, some failed
+            job.status = JobStatus.PARTIAL_SUCCESS
+            job.language_errors = language_errors
+
+            success_langs = ", ".join([lang.upper() for lang in final_videos.keys()])
+            failed_langs = ", ".join([lang.upper() for lang in language_errors.keys()])
+
+            job.error_message = f"Partial success: {success_langs} completed, {failed_langs} failed"
+
+            storage.add_log(job_id, "=" * 60, "WARNING")
+            storage.add_log(job_id, "⚠️  PARTIAL SUCCESS", "WARNING")
+            storage.add_log(job_id, f"✅ Succeeded: {success_langs}", "INFO")
+            storage.add_log(job_id, f"❌ Failed: {failed_langs}", "ERROR")
+            for lang, error in language_errors.items():
+                storage.add_log(job_id, f"   [{lang.upper()}] {error}", "ERROR")
+            storage.add_log(job_id, "=" * 60, "WARNING")
+
+        elif not final_videos:
+            # ALL FAILED
+            job.status = JobStatus.ERROR
+            job.language_errors = language_errors
+            job.error_message = "All languages failed"
+
+            storage.add_log(job_id, "=" * 60, "ERROR")
+            storage.add_log(job_id, "❌ ALL LANGUAGES FAILED", "ERROR")
+            for lang, error in language_errors.items():
+                storage.add_log(job_id, f"   [{lang.upper()}] {error}", "ERROR")
+            storage.add_log(job_id, "=" * 60, "ERROR")
+
+        else:
+            # ALL SUCCEEDED
+            job.status = JobStatus.DONE
+
+            storage.add_log(job_id, "=" * 60, "INFO")
+            storage.add_log(job_id, "✅ ALL LANGUAGES COMPLETED SUCCESSFULLY!", "INFO")
+            for lang, video_path in final_videos.items():
+                storage.add_log(job_id, f"   [{lang.upper()}] {video_path}", "INFO")
+            storage.add_log(job_id, "=" * 60, "INFO")
+
+        storage.save_job_state(job)
+        storage.update_progress(job_id, "done", 6, message=f"Processing complete: {job.status}")
 
         return {
-            "status": "success",
+            "status": job.status.value if hasattr(job.status, 'value') else str(job.status),
             "job_id": job_id,
-            "final_videos": final_videos
+            "final_videos": final_videos,
+            "errors": language_errors
         }
 
     except Exception as e:
-        # Handle error
+        # Catastrophic failure in orchestrator (download/transcript phase)
         job.status = JobStatus.ERROR
         job.error_message = str(e)
         storage.save_job_state(job)
 
         storage.add_log(job_id, "=" * 60, "ERROR")
-        storage.add_log(job_id, f"❌ PIPELINE FAILED: {e}", "ERROR")
+        storage.add_log(job_id, f"❌ PIPELINE FAILED (orchestrator): {e}", "ERROR")
         storage.add_log(job_id, "=" * 60, "ERROR")
 
         return {

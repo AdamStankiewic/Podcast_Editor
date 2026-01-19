@@ -19,6 +19,7 @@ class JobStatus(str, Enum):
     ENHANCING_AUDIO = "ENHANCING_AUDIO"
     RENDERING = "RENDERING"
     DONE = "DONE"
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"  # Some languages succeeded, some failed
     ERROR = "ERROR"
 
 
@@ -54,6 +55,7 @@ class Job(BaseModel):
     artifacts: JobArtifacts = Field(default_factory=JobArtifacts)
     logs: List[str] = Field(default_factory=list)
     error_message: Optional[str] = None
+    language_errors: Dict[str, str] = Field(default_factory=dict)  # Per-language error messages
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None

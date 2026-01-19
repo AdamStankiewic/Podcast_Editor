@@ -127,11 +127,46 @@ curl -O http://localhost:8000/api/jobs/{job_id}/download
 
 ## 🏗️ Architektura
 
+### Nowa architektura v2.0 (Sequential Language Tasks)
+
+System został przeprojektowany z monolitycznego taska na **orchestrator + osobne taski per język**:
+
+**Dlaczego?**
+- GPU safety: Resemble Enhance + NVENC rendering nie mogą działać równolegle (OOM)
+- Dynamiczne limity: Każdy język ma limit dopasowany do długości filmu
+- Partial success: Jeśli FR failuje, PL i EN już gotowe (nie tracisz 8h pracy)
+- Łatwiejszy retry: Możesz przetwarzać tylko failed języki
+
+**Pipeline:**
+```
+┌─────────────────────────────────────┐
+│ process_podcast (orchestrator)      │
+│ ├─ Download video (shared)          │
+│ └─ Get transcript (shared)          │
+└─────────────────────────────────────┘
+              ↓ sequential
+┌─────────────────────────────────────┐
+│ process_language("pl", duration)    │
+│ ├─ Translate → TTS → Enhance → Render│
+│ └─ Dynamic limit (auto-calculated)  │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│ process_language("fr", duration)    │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│ process_language("en", duration)    │
+└─────────────────────────────────────┘
+```
+
+**Struktura plików:**
+
 ```
 📦 Podcast_Rditor
 ├── backend/
 │   ├── app.py                     # FastAPI application
-│   ├── models.py                  # Pydantic models (Job, Progress, etc.)
+│   ├── models.py                  # Pydantic models (Job, Progress, PARTIAL_SUCCESS)
 │   ├── pipeline/                  # Pipeline steps
 │   │   ├── download.py            # Step 1: YouTube download
 │   │   ├── transcribe.py          # Step 2: Get German transcript
@@ -146,8 +181,8 @@ curl -O http://localhost:8000/api/jobs/{job_id}/download
 │   │   ├── azure_tts_batch.py     # Azure TTS batch synthesis
 │   │   └── render.py              # ffmpeg video processing
 │   └── workers/
-│       ├── celery_config.py       # Celery configuration
-│       └── tasks.py               # Background tasks
+│       ├── celery_config.py       # Celery configuration (global defaults)
+│       └── tasks.py               # Orchestrator + language tasks with dynamic limits
 ├── frontend/
 │   ├── templates/index.html       # Web UI (HTMX)
 │   └── static/style.css
@@ -349,25 +384,39 @@ celery -A backend.workers.celery_config:celery_app worker --loglevel=debug
 
 ### Problem: SoftTimeLimitExceeded dla długich filmów
 
-**Objawy:** Zadanie kończy się błędem "SoftTimeLimitExceeded()" po ~3.5 godziny przetwarzania
+**Objawy:** Zadanie kończy się błędem "SoftTimeLimitExceeded()" podczas przetwarzania
 
-**Przyczyna:** Bardzo długie filmy (2+ godziny) z wieloma językami przekraczają domyślny limit czasu Celery
+**Przyczyna:** System używa **dynamicznych limitów czasu** per język, obliczanych automatycznie na podstawie długości filmu
 
-**Rozwiązanie:**
-1. Domyślne limity zostały zwiększone do:
-   - Soft limit: 5 godzin (18000 sekund)
-   - Hard limit: 6 godzin (21600 sekund)
-2. Dla jeszcze dłuższych filmów edytuj `backend/workers/celery_config.py`:
-   ```python
-   task_soft_time_limit=25200  # 7 godzin
-   task_time_limit=28800       # 8 godzin
-   ```
-3. Restart workera po zmianie: `docker-compose restart worker`
+**Jak to działa (Nowa architektura v2.0):**
+1. Każdy język jest przetwarzany jako osobny task z własnymi limitami
+2. Limity obliczane dynamicznie: `base_time (40 min) + enhance_time + render_time`
+3. Sequential execution (PL → FR → EN) chroni GPU przed przeciążeniem
+4. **Partial Success**: Jeśli jeden język failuje, inne kontynuują
 
-**Szacunkowy czas przetwarzania:**
-- Film 1h + 3 języki: ~1.5-2h
-- Film 2h + 3 języki: ~3-4h
-- Film 3h + 3 języki: ~5-6h
+**Wzór obliczania limitów:**
+```python
+base_time = 40 min  # Translation + TTS (stałe)
+enhance_time = min(video_duration * 0.25, 40 min)  # Resemble Enhance
+render_time = video_duration * 1.5  # FFmpeg NVENC @ 3.4x speed
+total_limit = (base_time + enhance_time + render_time) * 1.2  # +20% margin
+```
+
+**Szacunkowy czas przetwarzania per język:**
+- Film 10 min: ~58 min
+- Film 1h: ~2.4h
+- Film 2h: ~4.2h
+- Film 3h: ~6.3h
+
+**Całkowity czas dla 3 języków (sequential):**
+- Film 1h: ~7.2h
+- Film 2h: ~12.6h
+- Film 3h: ~19h
+
+**Rozwiązywanie problemów:**
+- Limity ustawiane automatycznie - **nie trzeba ręcznie edytować**
+- Jeśli task timeout, sprawdź logi GPU (może być throttling)
+- Dla filmów 3h+ upewnij się że masz wystarczająco RAM/GPU memory
 
 ---
 
@@ -455,7 +504,7 @@ WantedBy=multi-user.target
 | Render | 2-4min | ffmpeg encoding |
 | **TOTAL** | **~10-15min** | Dla 10-min video |
 
-**Uwaga:** Dla długich filmów (2+ godziny) z wieloma językami (np. 3), całkowity czas przetwarzania może wynosić 3-6 godzin. System obsługuje filmy do 6 godzin przetwarzania (limit Celery).
+**Uwaga:** System używa **dynamicznych limitów czasu** per język. Dla długich filmów (2+ godziny) z 3 językami, całkowity czas może wynosić 12-19 godzin (sequential execution chroni GPU). Każdy język ma własny task z automatycznie obliczonym limitem.
 
 ### Optymalizacje:
 
