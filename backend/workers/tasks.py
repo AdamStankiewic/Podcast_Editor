@@ -16,6 +16,47 @@ from backend.pipeline.enhance_step import enhance_audio
 from backend.pipeline.render_step import render_final_video
 
 
+def calculate_orchestrator_limits(video_duration: float, num_languages: int) -> dict:
+    """
+    Calculate dynamic time limits for process_podcast orchestrator task
+
+    The orchestrator runs languages SEQUENTIALLY to avoid GPU overload, so total time is:
+    - Download + Transcribe: ~30 min (fixed overhead)
+    - Per language: calculated by calculate_language_task_limits()
+    - Total: download_time + (num_languages * per_language_time)
+
+    Args:
+        video_duration: Video duration in seconds
+        num_languages: Number of languages to process
+
+    Returns:
+        dict with soft_limit and hard_limit in seconds
+
+    Examples:
+        84 min video, 3 languages: 30min + 3 × 2.4h = 7.7h
+        60 min video, 2 languages: 30min + 2 × 2.4h = 5.3h
+    """
+    # Download + Transcribe overhead (in seconds)
+    download_transcribe_time = 1800  # 30 minutes
+
+    # Per-language time (using same calculation as language task)
+    lang_limits = calculate_language_task_limits(video_duration)
+    per_language_time = lang_limits['estimated_time']
+
+    # Total time for orchestrator
+    total_time = download_transcribe_time + (num_languages * per_language_time)
+
+    # Add safety margins
+    soft_limit = int(total_time * 1.1)  # 10% margin
+    hard_limit = int(total_time * 1.2)  # 20% margin
+
+    return {
+        'soft_limit': soft_limit,
+        'hard_limit': hard_limit,
+        'estimated_time': int(total_time)
+    }
+
+
 def calculate_language_task_limits(video_duration: float) -> dict:
     """
     Calculate dynamic time limits for language processing task based on video duration
@@ -229,6 +270,19 @@ def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = N
             f"✓ Video downloaded: {job.video_title} ({video_duration/60:.1f} minutes)",
             "INFO"
         )
+
+        # Set dynamic time limits for orchestrator based on video duration and language count
+        orchestrator_limits = calculate_orchestrator_limits(video_duration, len(languages))
+        storage.add_log(
+            job_id,
+            f"⏱️  Orchestrator time limits: {orchestrator_limits['estimated_time']//60} min estimated, "
+            f"{orchestrator_limits['soft_limit']//60} min soft, {orchestrator_limits['hard_limit']//60} min hard",
+            "INFO"
+        )
+
+        # Override task time limits dynamically
+        self.time_limit = orchestrator_limits['hard_limit']
+        self.soft_time_limit = orchestrator_limits['soft_limit']
 
         # PHASE 2: Get transcript (shared for all languages)
         job.status = JobStatus.TRANSCRIBING
