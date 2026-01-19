@@ -162,6 +162,19 @@ Odpowiedź (TYLKO streszczenie, po polsku):"""
             if len(para) > self.chunk_size:
                 sentences = self._split_sentences(para)
                 for sent in sentences:
+                    # CRITICAL FIX: If sentence itself is too long, force split it
+                    if len(sent) > self.chunk_size:
+                        # Save current chunk first
+                        if current_chunk.strip():
+                            chunks.append(current_chunk.strip())
+                            current_chunk = ""
+
+                        # Force split long sentence into max chunk_size pieces
+                        for i in range(0, len(sent), self.chunk_size):
+                            chunk_piece = sent[i:i + self.chunk_size]
+                            chunks.append(chunk_piece.strip())
+                        continue
+
                     if len(current_chunk) + len(sent) + 2 <= self.chunk_size:
                         current_chunk += sent + " "
                     else:
@@ -180,6 +193,15 @@ Odpowiedź (TYLKO streszczenie, po polsku):"""
         # Add remaining
         if current_chunk.strip():
             chunks.append(current_chunk.strip())
+
+        # CRITICAL SAFETY CHECK: Verify no chunk exceeds safe size
+        # Max safe chunk for gpt-4o-mini with max_tokens=16000 is ~10000 chars input
+        MAX_SAFE_CHUNK_SIZE = 10000
+        oversized_chunks = [i for i, c in enumerate(chunks) if len(c) > MAX_SAFE_CHUNK_SIZE]
+        if oversized_chunks:
+            print(f"⚠ WARNING: {len(oversized_chunks)} chunks exceed safe size ({MAX_SAFE_CHUNK_SIZE} chars)")
+            for idx in oversized_chunks[:3]:  # Show first 3
+                print(f"  - Chunk {idx+1}: {len(chunks[idx])} chars")
 
         return chunks
 
@@ -371,7 +393,7 @@ NEVER:
                         {"role": "user", "content": user_prompt}
                     ],
                     temperature=0.5,  # Slightly higher for natural expansion
-                    max_tokens=5000
+                    max_tokens=16000  # Max for gpt-4o-mini (increased from 5000 to handle larger chunks)
                 )
 
                 translation = response.choices[0].message.content.strip()
@@ -433,7 +455,7 @@ ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.5,
-                max_tokens=5000
+                max_tokens=16000  # Max for gpt-4o-mini (increased from 5000 to handle larger expansions)
             )
 
             expanded = response.choices[0].message.content.strip()
