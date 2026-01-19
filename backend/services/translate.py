@@ -200,10 +200,18 @@ ZACHOWAJ:
 3. Płynność i naturalność polskiego języka
 4. Chronologię i logikę wydarzeń
 
-NAZWY WŁASNE:
-- Nazwy geograficzne/historyczne tłumacz na polski: "Seidenstraße" → "Jedwabny Szlak", "Schwarzes Meer" → "Morze Czarne"
+NAZWY WŁASNE I TERMINY HISTORYCZNE:
+- Używaj USTALONYCH polskich terminów (NIE tłumacz dosłownie!):
+  • "Fruchtbarer Halbmond" → "Żyzny Półksiężyc" (NIE "owocowy/frutkowy"!)
+  • "Mesopotamien" → "Mezopotamia" (z polskim "ia")
+  • "Seidenstraße" → "Jedwabny Szlak"
+  • "Schwarzes Meer" → "Morze Czarne"
+  • "Rotes Meer" → "Morze Czerwone"
+  • "Mittelmeer" → "Morze Śródziemne"
+  • "Persisches Reich" → "Imperium Perskie"
+  • "Römisches Reich" → "Cesarstwo Rzymskie"
 - Nazwiska osób zostaw w oryginale: "Napoleon Bonaparte" → "Napoleon Bonaparte"
-- Jeśli nazwa ma ugruntowane polskie tłumaczenie, użyj go
+- Jeśli nie znasz polskiego terminu, użyj transliteracji a nie dosłownego tłumaczenia
 
 LICZBY I DATY - PISZ SŁOWNIE:
 - Lata: "1945" → "tysiąc dziewięćset czterdzieści pięć" lub "rok tysiąc dziewięćset czterdzieści pięć"
@@ -238,10 +246,18 @@ CONSERVEZ:
 3. La fluidité et le naturel de la langue française
 4. La chronologie et la logique des événements
 
-NOMS PROPRES:
-- Traduisez les noms géographiques/historiques en français: "Seidenstraße" → "Route de la Soie", "Schwarzes Meer" → "Mer Noire"
-- Gardez les noms de personnes dans l'original: "Napoleon Bonaparte" → "Napoléon Bonaparte"
-- Si le nom a une traduction française établie, utilisez-la
+NOMS PROPRES ET TERMES HISTORIQUES:
+- Utilisez les termes français ÉTABLIS (NE traduisez PAS littéralement!):
+  • "Fruchtbarer Halbmond" → "Croissant fertile" (PAS "croissant fructueux/fruité"!)
+  • "Mesopotamien" → "Mésopotamie"
+  • "Seidenstraße" → "Route de la soie"
+  • "Schwarzes Meer" → "Mer Noire"
+  • "Rotes Meer" → "Mer Rouge"
+  • "Mittelmeer" → "Méditerranée"
+  • "Persisches Reich" → "Empire perse"
+  • "Römisches Reich" → "Empire romain"
+- Gardez les noms de personnes: "Napoleon Bonaparte" → "Napoléon Bonaparte"
+- Si vous ne connaissez pas le terme français, utilisez la translittération et non une traduction littérale
 
 CHIFFRES ET DATES - ÉCRIVEZ EN LETTRES:
 - Années: "1945" → "mille neuf cent quarante-cinq" ou "l'année mille neuf cent quarante-cinq"
@@ -276,10 +292,18 @@ PRESERVE:
 3. Fluidity and naturalness of English language
 4. Chronology and logic of events
 
-PROPER NOUNS:
-- Translate geographic/historical names to English: "Seidenstraße" → "Silk Road", "Schwarzes Meer" → "Black Sea"
-- Keep person names in original: "Napoleon Bonaparte" → "Napoleon Bonaparte"
-- If the name has an established English translation, use it
+PROPER NOUNS AND HISTORICAL TERMS:
+- Use ESTABLISHED English terms (DO NOT translate literally!):
+  • "Fruchtbarer Halbmond" → "Fertile Crescent" (NOT "fruitful/fruity crescent"!)
+  • "Mesopotamien" → "Mesopotamia"
+  • "Seidenstraße" → "Silk Road"
+  • "Schwarzes Meer" → "Black Sea"
+  • "Rotes Meer" → "Red Sea"
+  • "Mittelmeer" → "Mediterranean Sea"
+  • "Persisches Reich" → "Persian Empire"
+  • "Römisches Reich" → "Roman Empire"
+- Keep person names: "Napoleon Bonaparte" → "Napoleon Bonaparte"
+- If you don't know the English term, use transliteration not literal translation
 
 NUMBERS AND DATES - SPELL OUT:
 - Years: "1945" → "nineteen forty-five" or "the year nineteen forty-five"
@@ -419,6 +443,48 @@ ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
 
         return " ".join(sentences[-count:])
 
+    def _validate_translation(self, text: str) -> str:
+        """
+        Validate translation for common errors (e.g., literal translations of historical terms)
+        Returns corrected text with warnings
+        """
+        # Common translation errors to fix
+        error_patterns = {
+            "pl": {
+                r'\b[Ff]rutkow(y|ego|ym|ych)\s+[Pp]ółksiężyc': 'Żyzny Półksiężyc',
+                r'\b[Oo]wocow(y|ego|ym|ych)\s+[Pp]ółksiężyc': 'Żyzny Półksiężyc',
+                r'\b[Pp]łodn(y|ego|ym|ych)\s+[Pp]ółksiężyc': 'Żyzny Półksiężyc',
+                r'\bMesopotamia\b': 'Mezopotamia',
+                r'\birański(m|ch|ego)\s+wyżyn': 'irańską wyżyn',  # Grammar fix
+                r'\biranskim\s+wyżyną': 'irańską wyżyną',
+            },
+            "fr": {
+                r'\b[Cc]roissant\s+fructueux': 'Croissant fertile',
+                r'\b[Cc]roissant\s+fruité': 'Croissant fertile',
+            },
+            "en": {
+                r'\b[Ff]ruitful\s+[Cc]rescent': 'Fertile Crescent',
+                r'\b[Ff]ruity\s+[Cc]rescent': 'Fertile Crescent',
+            }
+        }
+
+        patterns = error_patterns.get(self.target_language, {})
+        corrected = text
+        corrections_made = []
+
+        for pattern, replacement in patterns.items():
+            import re
+            if re.search(pattern, corrected):
+                corrected = re.sub(pattern, replacement, corrected)
+                corrections_made.append(f"{pattern} → {replacement}")
+
+        if corrections_made:
+            print(f"⚠ Translation validation: Fixed {len(corrections_made)} common errors:")
+            for correction in corrections_made:
+                print(f"  - {correction}")
+
+        return corrected
+
     def _editorial_pass(self, text: str) -> str:
         """
         Editorial pass to remove repetitions and improve flow
@@ -426,6 +492,9 @@ ROZSZERZONE TŁUMACZENIE ({min_length}-{max_length} znaków):"""
 
         Note: Skipped if text is too long (>40k chars) to avoid max_tokens limit
         """
+        # Step 1: Validate and fix common translation errors
+        text = self._validate_translation(text)
+
         # Skip editorial pass for very long texts (exceeds GPT-4o-mini 16k token limit)
         if len(text) > 40000:
             print(f"Info: Skipping editorial pass (text too long: {len(text)} chars)")
