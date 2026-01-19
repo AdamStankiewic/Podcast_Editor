@@ -51,6 +51,7 @@ class TranslationService:
         self.target_language = target_language
         self.chunk_size = 3000  # Characters per chunk
         self.overlap_sentences = 2  # Sentences to overlap for context
+        self.enable_ai_quality_check = True  # Always enabled for professional quality
 
         if target_language not in self.LANGUAGES:
             raise ValueError(f"Unsupported language: {target_language}. Supported: {list(self.LANGUAGES.keys())}")
@@ -107,10 +108,17 @@ class TranslationService:
 
         # Step 4: Post-processing and editorial pass
         if progress_callback:
-            progress_callback(4, 4, "Editorial pass: removing repetitions...")
+            progress_callback(4, 5, "Editorial pass: removing repetitions...")
 
         full_translation = "\n\n".join(translated_chunks)
         final_text = self._editorial_pass(full_translation)
+
+        # Step 5: AI Quality Check (professional quality validation)
+        if self.enable_ai_quality_check:
+            if progress_callback:
+                progress_callback(5, 5, "AI quality check: validating translation...")
+
+            final_text = self._ai_quality_validator(final_text, text)
 
         return final_text
 
@@ -537,3 +545,245 @@ POPRAWIONY TEKST (bez komentarzy):"""
         except Exception as e:
             print(f"Warning: Editorial pass failed: {e}, using original translation")
             return text
+
+    def _ai_quality_validator(self, translated_text: str, original_german: str) -> str:
+        """
+        Professional AI quality check for translation
+        Validates: natural language, historical accuracy, terminology consistency, audio suitability
+
+        Args:
+            translated_text: Translated text to validate
+            original_german: Original German text (sample for context)
+
+        Returns:
+            Corrected translation with improved quality
+        """
+        # For very long texts, use sample validation to avoid token limits
+        original_sample = original_german[:5000] if len(original_german) > 5000 else original_german
+
+        # Get language-specific quality check prompt
+        prompt = self._get_quality_check_prompt(translated_text, original_sample)
+
+        try:
+            print(f"🔍 Running AI quality check for {self.target_language.upper()} ({len(translated_text)} chars)...")
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": f"You are a professional quality checker for {self.LANGUAGES[self.target_language]['native_name']} podcast translations."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,  # Low temperature for consistency
+                max_tokens=16000  # Max for gpt-4o-mini
+            )
+
+            result_text = response.choices[0].message.content.strip()
+
+            # Try to parse JSON response
+            import json
+            try:
+                # Extract JSON from response (might have markdown code blocks)
+                if "```json" in result_text:
+                    json_start = result_text.find("```json") + 7
+                    json_end = result_text.find("```", json_start)
+                    result_text = result_text[json_start:json_end].strip()
+                elif "```" in result_text:
+                    json_start = result_text.find("```") + 3
+                    json_end = result_text.find("```", json_start)
+                    result_text = result_text[json_start:json_end].strip()
+
+                result = json.loads(result_text)
+
+                severity = result.get("severity", "none")
+                issues = result.get("issues_found", [])
+                corrected = result.get("corrected_text", translated_text)
+                explanation = result.get("explanation", "")
+
+                # Log results
+                if severity != "none":
+                    print(f"⚠ AI Quality Check - Severity: {severity.upper()}")
+                    print(f"  Issues found ({len(issues)}):")
+                    for issue in issues[:5]:  # Show first 5
+                        print(f"    - {issue}")
+                    if explanation:
+                        print(f"  Explanation: {explanation[:200]}...")
+                    return corrected
+                else:
+                    print(f"✓ AI Quality Check passed - no major issues found")
+                    return translated_text
+
+            except json.JSONDecodeError:
+                # If JSON parsing fails, use response as-is (might be corrected text)
+                print(f"⚠ AI Quality Check: Could not parse JSON response, using GPT output directly")
+                return result_text if len(result_text) > len(translated_text) * 0.8 else translated_text
+
+        except Exception as e:
+            print(f"Warning: AI quality check failed: {e}, using original translation")
+            return translated_text
+
+    def _get_quality_check_prompt(self, translated_text: str, original_sample: str) -> str:
+        """Generate language-specific quality check prompt"""
+        lang_cfg = self.LANGUAGES[self.target_language]
+        text_length = len(translated_text)
+
+        if self.target_language == "pl":
+            return f"""Jesteś native Polish speaker i ekspertem od podcastów historycznych.
+
+ZADANIE: Sprawdź jakość poniższego tłumaczenia i popraw błędy.
+
+ORYGINALNY NIEMIECKI (fragment dla kontekstu):
+{original_sample}
+
+POLSKIE TŁUMACZENIE ({text_length} znaków):
+{translated_text[:40000]}
+
+SPRAWDŹ I POPRAW (4 kluczowe aspekty):
+
+1. NATURALNOŚĆ JĘZYKA - czy brzmi jak native speaker?
+   ❌ Germanizmy w składni (np. "został mianowany na stanowisko króla" zamiast "został królem")
+   ❌ Sztuczne, tłumaczeniowe brzmienie
+   ❌ Za formalne konstrukcje (to podcast, nie dokument urzędowy)
+   ✅ Płynny, naturalny polski
+   ✅ Odpowiedni ton dla podcastu audio (spokojny, dokumentalny ale nie sztywny)
+
+2. POPRAWNOŚĆ HISTORYCZNA - czy fakty są OK?
+   ❌ Błędne tytuły (np. "król Napoleon" gdy był cesarzem)
+   ❌ Nieprecyzyjne określenia geograficzne
+   ❌ Mylące chronologie
+   ✅ Precyzyjne tytuły i określenia
+   ✅ Poprawna geografia i chronologia
+
+3. SPÓJNOŚĆ TERMINOLOGII - czy te same rzeczy mają te same nazwy?
+   ❌ "Imperium Perskie" w jednym miejscu, "Cesarstwo Perskie" w innym
+   ❌ Różne tłumaczenia tych samych nazw geograficznych
+   ❌ Niespójne określenia władców/instytucji
+   ✅ Konsekwentna terminologia przez cały tekst
+
+4. BRZMIENIE DLA LEKTORA - czy dobrze brzmi czytane na głos?
+   ❌ Zbyt długie zdania (trudne dla lektora)
+   ❌ Skomplikowane konstrukcje zdaniowe
+   ❌ Nieczytelne nagromadzenia cyfr/dat
+   ✅ Zdania o odpowiedniej długości
+   ✅ Naturalne dla mówionego języka
+
+WAŻNE ZASADY:
+- ZACHOWAJ długość tekstu (±5%)
+- NIE dodawaj nowych faktów
+- NIE zmieniaj dat, liczb, nazwisk
+- Popraw TYLKO błędy językowe, stylistyczne i niespójności
+
+ODPOWIEDŹ (JSON):
+{{
+  "severity": "none" | "minor" | "major",
+  "issues_found": ["lista konkretnych problemów"],
+  "corrected_text": "poprawiony tekst (cały!)",
+  "explanation": "krótkie wyjaśnienie głównych poprawek"
+}}"""
+
+        elif self.target_language == "fr":
+            return f"""Vous êtes un locuteur natif français et expert en podcasts historiques.
+
+TÂCHE: Vérifier la qualité de la traduction suivante et corriger les erreurs.
+
+ALLEMAND ORIGINAL (extrait pour contexte):
+{original_sample}
+
+TRADUCTION FRANÇAISE ({text_length} caractères):
+{translated_text[:40000]}
+
+VÉRIFIER ET CORRIGER (4 aspects clés):
+
+1. NATUREL DE LA LANGUE - est-ce que ça sonne comme un locuteur natif?
+   ❌ Germanismes dans la syntaxe
+   ❌ Son artificiel de traduction
+   ❌ Constructions trop formelles (c'est un podcast, pas un document officiel)
+   ✅ Français fluide et naturel
+   ✅ Ton approprié pour podcast audio (calme, documentaire mais pas rigide)
+
+2. EXACTITUDE HISTORIQUE - les faits sont-ils corrects?
+   ❌ Titres incorrects (ex: "roi Napoléon" quand il était empereur)
+   ❌ Termes géographiques imprécis
+   ❌ Chronologies confuses
+   ✅ Titres et termes précis
+   ✅ Géographie et chronologie correctes
+
+3. COHÉRENCE TERMINOLOGIQUE - les mêmes choses ont-elles les mêmes noms?
+   ❌ "Empire perse" à un endroit, "Perse" à un autre
+   ❌ Traductions différentes des mêmes noms géographiques
+   ❌ Termes incohérents pour dirigeants/institutions
+   ✅ Terminologie cohérente dans tout le texte
+
+4. QUALITÉ POUR NARRATION - est-ce que ça sonne bien lu à voix haute?
+   ❌ Phrases trop longues (difficiles pour le narrateur)
+   ❌ Constructions de phrases compliquées
+   ❌ Accumulation illisible de chiffres/dates
+   ✅ Phrases de longueur appropriée
+   ✅ Naturel pour la langue parlée
+
+RÈGLES IMPORTANTES:
+- CONSERVER la longueur du texte (±5%)
+- NE PAS ajouter de nouveaux faits
+- NE PAS changer les dates, chiffres, noms
+- Corriger UNIQUEMENT les erreurs linguistiques, stylistiques et incohérences
+
+RÉPONSE (JSON):
+{{
+  "severity": "none" | "minor" | "major",
+  "issues_found": ["liste des problèmes spécifiques"],
+  "corrected_text": "texte corrigé (complet!)",
+  "explanation": "brève explication des corrections principales"
+}}"""
+
+        else:  # en
+            return f"""You are a native English speaker and expert in historical podcasts.
+
+TASK: Check the quality of the following translation and correct errors.
+
+ORIGINAL GERMAN (excerpt for context):
+{original_sample}
+
+ENGLISH TRANSLATION ({text_length} characters):
+{translated_text[:40000]}
+
+CHECK AND CORRECT (4 key aspects):
+
+1. NATURAL LANGUAGE - does it sound like a native speaker?
+   ❌ Germanisms in syntax
+   ❌ Artificial, translation-like sound
+   ❌ Too formal constructions (this is a podcast, not an official document)
+   ✅ Fluid, natural English
+   ✅ Appropriate tone for audio podcast (calm, documentary but not stiff)
+
+2. HISTORICAL ACCURACY - are facts correct?
+   ❌ Incorrect titles (e.g., "King Napoleon" when he was emperor)
+   ❌ Imprecise geographical terms
+   ❌ Confusing chronologies
+   ✅ Precise titles and terms
+   ✅ Correct geography and chronology
+
+3. TERMINOLOGY CONSISTENCY - do the same things have the same names?
+   ❌ "Persian Empire" in one place, "Persia" in another
+   ❌ Different translations of the same geographical names
+   ❌ Inconsistent terms for rulers/institutions
+   ✅ Consistent terminology throughout text
+
+4. NARRATION QUALITY - does it sound good read aloud?
+   ❌ Too-long sentences (difficult for narrator)
+   ❌ Complicated sentence constructions
+   ❌ Unreadable accumulation of numbers/dates
+   ✅ Appropriately-length sentences
+   ✅ Natural for spoken language
+
+IMPORTANT RULES:
+- PRESERVE text length (±5%)
+- DO NOT add new facts
+- DO NOT change dates, numbers, names
+- Correct ONLY linguistic, stylistic errors and inconsistencies
+
+RESPONSE (JSON):
+{{
+  "severity": "none" | "minor" | "major",
+  "issues_found": ["list of specific problems"],
+  "corrected_text": "corrected text (complete!)",
+  "explanation": "brief explanation of main corrections"
+}}"""
