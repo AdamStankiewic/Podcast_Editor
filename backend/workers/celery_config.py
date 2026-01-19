@@ -28,8 +28,8 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
-    task_time_limit=14400,  # 4 hours max per task (enough for long podcasts with AI enhancement)
-    task_soft_time_limit=12600,  # Soft limit warning at 3.5 hours
+    task_time_limit=21600,  # 6 hours max per task (handles very long podcasts with multiple languages)
+    task_soft_time_limit=18000,  # Soft limit warning at 5 hours
     worker_prefetch_multiplier=1,  # Process one task at a time
     worker_max_tasks_per_child=10,  # Restart worker after 10 tasks (prevent memory leaks)
 )

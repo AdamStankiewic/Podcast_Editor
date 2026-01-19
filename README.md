@@ -347,6 +347,28 @@ celery -A backend.workers.celery_config:celery_app worker --loglevel=debug
 2. Upewnij się, że rozdzielczość = video (1920x1080)
 3. Testuj ręcznie: `ffmpeg -i video.mp4 -i overlay.png -filter_complex "overlay=0:0" test.mp4`
 
+### Problem: SoftTimeLimitExceeded dla długich filmów
+
+**Objawy:** Zadanie kończy się błędem "SoftTimeLimitExceeded()" po ~3.5 godziny przetwarzania
+
+**Przyczyna:** Bardzo długie filmy (2+ godziny) z wieloma językami przekraczają domyślny limit czasu Celery
+
+**Rozwiązanie:**
+1. Domyślne limity zostały zwiększone do:
+   - Soft limit: 5 godzin (18000 sekund)
+   - Hard limit: 6 godzin (21600 sekund)
+2. Dla jeszcze dłuższych filmów edytuj `backend/workers/celery_config.py`:
+   ```python
+   task_soft_time_limit=25200  # 7 godzin
+   task_time_limit=28800       # 8 godzin
+   ```
+3. Restart workera po zmianie: `docker-compose restart worker`
+
+**Szacunkowy czas przetwarzania:**
+- Film 1h + 3 języki: ~1.5-2h
+- Film 2h + 3 języki: ~3-4h
+- Film 3h + 3 języki: ~5-6h
+
 ---
 
 ## 🚢 Deployment (Production)
@@ -432,6 +454,8 @@ WantedBy=multi-user.target
 | TTS | 3-5min | Azure batch + chunking |
 | Render | 2-4min | ffmpeg encoding |
 | **TOTAL** | **~10-15min** | Dla 10-min video |
+
+**Uwaga:** Dla długich filmów (2+ godziny) z wieloma językami (np. 3), całkowity czas przetwarzania może wynosić 3-6 godzin. System obsługuje filmy do 6 godzin przetwarzania (limit Celery).
 
 ### Optymalizacje:
 
