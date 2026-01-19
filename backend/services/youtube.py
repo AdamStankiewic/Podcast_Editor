@@ -13,8 +13,34 @@ class YouTubeService:
     """Handles YouTube video downloads and metadata extraction"""
 
     @staticmethod
+    def normalize_url(url: str) -> str:
+        """
+        Normalize YouTube URL by ensuring it has a protocol
+
+        Args:
+            url: YouTube URL (may or may not have protocol)
+
+        Returns:
+            Normalized URL with https:// protocol
+        """
+        url = url.strip()
+
+        # If URL doesn't start with http:// or https://, add https://
+        if not url.startswith(('http://', 'https://')):
+            url = f'https://{url}'
+
+        # Upgrade http:// to https://
+        if url.startswith('http://'):
+            url = url.replace('http://', 'https://', 1)
+
+        return url
+
+    @staticmethod
     def extract_video_id(url: str) -> Optional[str]:
         """Extract video ID from YouTube URL"""
+        # Normalize URL first
+        url = YouTubeService.normalize_url(url)
+
         patterns = [
             r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})',
             r'youtube\.com\/embed\/([a-zA-Z0-9_-]{11})',
@@ -30,6 +56,9 @@ class YouTubeService:
     @staticmethod
     def get_video_info(url: str) -> Dict[str, Any]:
         """Get video metadata without downloading"""
+        # Normalize URL first
+        url = YouTubeService.normalize_url(url)
+
         try:
             result = subprocess.run(
                 [
@@ -61,6 +90,9 @@ class YouTubeService:
         Download video from YouTube
         Returns path to downloaded file
         """
+        # Normalize URL first
+        url = YouTubeService.normalize_url(url)
+
         try:
             # Download best quality video with audio
             result = subprocess.run(
@@ -96,6 +128,9 @@ class YouTubeService:
         Download German subtitles/transcript from YouTube
         Returns path to subtitle file or None if not available
         """
+        # Normalize URL first
+        url = YouTubeService.normalize_url(url)
+
         try:
             # Try to download auto-generated or manual subtitles
             result = subprocess.run(
