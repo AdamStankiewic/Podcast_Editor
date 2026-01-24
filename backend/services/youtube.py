@@ -71,7 +71,7 @@ class YouTubeService:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=30
+                timeout=180  # 3 minutes for slow connections or YouTube API delays
             )
 
             info = json.loads(result.stdout)
