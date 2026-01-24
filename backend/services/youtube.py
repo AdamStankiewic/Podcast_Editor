@@ -82,6 +82,13 @@ class YouTubeService:
                 "description": info.get("description"),
                 "uploader": info.get("uploader"),
             }
+        except subprocess.CalledProcessError as e:
+            error_output = e.stderr if e.stderr else str(e)
+            raise RuntimeError(f"Failed to get video info: {error_output}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Failed to get video info: Request timed out after 180 seconds")
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse video info: Invalid JSON response from yt-dlp")
         except Exception as e:
             raise RuntimeError(f"Failed to get video info: {e}")
 
@@ -169,8 +176,15 @@ class YouTubeService:
 
             return None
 
+        except subprocess.CalledProcessError as e:
+            error_output = e.stderr if e.stderr else str(e)
+            print(f"Subtitle download failed for {lang}: {error_output}")
+            return None
+        except subprocess.TimeoutExpired:
+            print(f"Subtitle download timed out after 180 seconds for {lang}")
+            return None
         except Exception as e:
-            print(f"Subtitle download failed: {e}")
+            print(f"Subtitle download failed for {lang}: {e}")
             return None
 
     @staticmethod
