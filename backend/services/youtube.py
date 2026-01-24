@@ -65,7 +65,7 @@ class YouTubeService:
                     "yt-dlp",
                     "--dump-json",
                     "--no-playlist",
-                    "--extractor-args", "youtube:player_client=web",
+                    "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
                     url
                 ],
                 capture_output=True,
@@ -103,9 +103,11 @@ class YouTubeService:
                     "--merge-output-format", "mp4",
                     "-o", str(output_path),
                     "--no-playlist",
-                    "--extractor-args", "youtube:player_client=web",
+                    "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
                     "--retries", "10",
                     "--fragment-retries", "10",
+                    "--socket-timeout", "30",
+                    "--no-abort-on-unavailable-fragments",
                     url
                 ],
                 capture_output=True,
@@ -146,7 +148,7 @@ class YouTubeService:
                     "--skip-download",
                     "--sub-format", "vtt",
                     "-o", str(output_path.with_suffix("")),
-                    "--extractor-args", "youtube:player_client=web",
+                    "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
                     url
                 ],
                 capture_output=True,
