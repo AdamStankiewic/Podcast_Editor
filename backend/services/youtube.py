@@ -70,6 +70,8 @@ class YouTubeService:
                 ],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 check=True,
                 timeout=180  # 3 minutes for slow connections or YouTube API delays
             )
@@ -119,6 +121,8 @@ class YouTubeService:
                 ],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 check=True,
                 timeout=3600  # 1 hour timeout for long videos
             )
@@ -160,6 +164,8 @@ class YouTubeService:
                 ],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 check=True,
                 timeout=180  # 3 minutes for slow connections or large subtitle files
             )
@@ -244,6 +250,8 @@ class YouTubeService:
                 ],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 check=True
             )
 
