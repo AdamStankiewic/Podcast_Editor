@@ -153,19 +153,18 @@ def process_language_task(self, job_id: str, language: str, video_duration: floa
         )
         storage.add_log(job_id, f"[{language.upper()}] ✓ Translation complete", "INFO")
 
-        # STEP 2: TTS Generation
+        # STEP 2: TTS Generation (Chatterbox primary, Azure fallback)
         storage.add_log(job_id, f"[{language.upper()}] Step 2/4: Generating TTS audio...", "INFO")
         tts_result = generate_tts(
             job_id=job_id,
-            speech_key=os.getenv("SPEECH_KEY"),
-            speech_region=os.getenv("SPEECH_REGION"),
-            voice=os.getenv("TTS_VOICE", "en-GB-OllieMultilingualNeural"),
-            rate=os.getenv("TTS_RATE", "-10%"),
-            pitch=os.getenv("TTS_PITCH", "0%"),
             target_language=language,
-            pronunciations_csv=os.getenv("PRONUNCIATIONS_CSV", "./pronunciations.csv")
+            pronunciations_csv=os.getenv("PRONUNCIATIONS_CSV", "./pronunciations.csv"),
+            # Provider is auto-selected from TTS_PROVIDER env var (default: chatterbox)
+            # Chatterbox params loaded from CHATTERBOX_* env vars
+            # Azure fallback params loaded from SPEECH_KEY, TTS_VOICE, etc.
         )
-        storage.add_log(job_id, f"[{language.upper()}] ✓ TTS complete", "INFO")
+        provider_used = tts_result.get("provider", "unknown")
+        storage.add_log(job_id, f"[{language.upper()}] ✓ TTS complete (provider: {provider_used})", "INFO")
 
         # STEP 3: Audio Enhancement (GPU - Resemble Enhance)
         storage.add_log(job_id, f"[{language.upper()}] Step 3/4: Enhancing audio (GPU)...", "INFO")
