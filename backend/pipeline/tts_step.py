@@ -114,10 +114,14 @@ def generate_tts(
             )
 
         # Build Chatterbox config
+        # Optimized for storytelling/podcast narration style
         config = TTSConfig(
             voice=reference_audio or os.getenv("CHATTERBOX_REFERENCE_AUDIO", ""),
             target_language=target_language,
-            exaggeration=exaggeration if exaggeration is not None else float(os.getenv("CHATTERBOX_EXAGGERATION", "0.4")),
+            # Slower rate for storytelling (0.9 = 10% slower)
+            rate=float(os.getenv("CHATTERBOX_RATE", "0.9")),
+            # Higher exaggeration for more expressive narration (0.5 default)
+            exaggeration=exaggeration if exaggeration is not None else float(os.getenv("CHATTERBOX_EXAGGERATION", "0.5")),
             cfg_weight=cfg_weight if cfg_weight is not None else float(os.getenv("CHATTERBOX_CFG_WEIGHT", "0.5"))
         )
 
@@ -131,7 +135,7 @@ def generate_tts(
 
         storage.add_log(
             job_id,
-            f"[{target_language.upper()}] Chatterbox config: model={model_variant}, exaggeration={config.exaggeration}, cfg_weight={config.cfg_weight}",
+            f"[{target_language.upper()}] Chatterbox config: model={model_variant}, rate={config.rate}, exaggeration={config.exaggeration}, cfg_weight={config.cfg_weight}",
             "INFO"
         )
 

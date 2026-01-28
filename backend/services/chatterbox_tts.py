@@ -88,7 +88,8 @@ class ChatterboxTTSProvider(TTSProvider):
         self._model_loaded = False
 
         # Chunking configuration (for long texts)
-        self.max_chars = 500  # Chatterbox works best with shorter chunks
+        # Shorter chunks = better quality, fewer errors
+        self.max_chars = 250  # Reduced for better pronunciation
         self.chunk_delay_sec = 0.3
         self.min_valid_wav_bytes = 10_000
 
@@ -189,11 +190,13 @@ class ChatterboxTTSProvider(TTSProvider):
             raw_wav = temp_dir / f"{output_path.stem}_raw.wav"
             self._concat_wavs(temp_dir, raw_wav)
 
-            # Step 4: Loudness normalization
+            # Step 4: Audio processing (tempo + loudness)
             if progress_callback:
-                progress_callback(4, 4, "Normalizing loudness...")
+                progress_callback(4, 4, "Processing audio (tempo + loudness)...")
 
-            self._normalize_loudness(raw_wav, output_path)
+            # Apply tempo adjustment for storytelling style
+            # rate < 1.0 = slower speech (0.85 = 15% slower)
+            self._apply_audio_processing(raw_wav, output_path, rate=config.rate)
 
             # Calculate duration
             duration = self._get_audio_duration(output_path)
@@ -368,18 +371,39 @@ class ChatterboxTTSProvider(TTSProvider):
             if files_txt.exists():
                 files_txt.unlink()
 
-    def _normalize_loudness(self, input_wav: Path, output_wav: Path):
-        """Apply loudness normalization using ffmpeg (podcast standard: -19 LUFS)"""
+    def _apply_audio_processing(self, input_wav: Path, output_wav: Path, rate: float = 1.0):
+        """
+        Apply audio processing: tempo adjustment + loudness normalization
+
+        Args:
+            input_wav: Input WAV file
+            output_wav: Output WAV file
+            rate: Playback rate (0.85 = 15% slower, 1.0 = normal)
+        """
         try:
+            # Build filter chain
+            filters = []
+
+            # Tempo adjustment (rate < 1.0 = slower, more storytelling style)
+            if rate != 1.0:
+                # atempo accepts 0.5 to 2.0, so we clamp
+                tempo = max(0.5, min(2.0, rate))
+                filters.append(f"atempo={tempo}")
+
+            # Loudness normalization (podcast standard: -19 LUFS)
+            filters.append("loudnorm=I=-19:TP=-2:LRA=16")
+
+            filter_chain = ",".join(filters)
+
             subprocess.run([
                 "ffmpeg", "-y",
                 "-i", str(input_wav),
-                "-af", "loudnorm=I=-19:TP=-2:LRA=16",
+                "-af", filter_chain,
                 str(output_wav)
             ], check=True, capture_output=True)
 
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Loudness normalization failed: {e.stderr.decode() if e.stderr else 'unknown'}")
+            raise RuntimeError(f"Audio processing failed: {e.stderr.decode() if e.stderr else 'unknown'}")
 
     def _get_audio_duration(self, audio_path: Path) -> float:
         """Get audio duration in seconds"""
