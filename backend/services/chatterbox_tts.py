@@ -148,6 +148,7 @@ class ChatterboxTTSProvider(TTSProvider):
                 progress_callback(1, 4, "Preparing text chunks...")
 
             text = self._normalize_text(text)
+            text = self._add_punctuation_pauses(text)
             chunks = self._split_into_chunks(text, self.max_chars)
 
             print(f"Split into {len(chunks)} chunks for Chatterbox")
@@ -273,9 +274,27 @@ class ChatterboxTTSProvider(TTSProvider):
         return None
 
     def _normalize_text(self, text: str) -> str:
-        """Normalize text whitespace"""
+        """Normalize text whitespace and add breathing room for punctuation"""
         text = text.replace("\r\n", "\n").strip()
         text = re.sub(r"[ \t]+", " ", text)
+        return text
+
+    def _add_punctuation_pauses(self, text: str) -> str:
+        """
+        Add subtle pauses after punctuation for more natural storytelling rhythm.
+        This helps the TTS model respect sentence boundaries better.
+        """
+        # Add ellipsis after sentences for longer pauses (storytelling effect)
+        # Period followed by space → period + pause marker
+        text = re.sub(r'\.(\s+)', r'. \1', text)
+        text = re.sub(r'\!(\s+)', r'! \1', text)
+        text = re.sub(r'\?(\s+)', r'? \1', text)
+
+        # Add slight pause hint after commas (semi-colons, colons)
+        text = re.sub(r',(\s+)', r', \1', text)
+        text = re.sub(r';(\s+)', r'; \1', text)
+        text = re.sub(r':(\s+)', r': \1', text)
+
         return text
 
     def _split_into_chunks(self, text: str, max_len: int) -> List[str]:
@@ -344,16 +363,29 @@ class ChatterboxTTSProvider(TTSProvider):
         return [sentence[i:i+max_len] for i in range(0, len(sentence), max_len)]
 
     def _concat_wavs(self, temp_dir: Path, output_wav: Path):
-        """Concatenate WAV files using ffmpeg"""
+        """Concatenate WAV files using ffmpeg with pauses between chunks"""
         parts = sorted(temp_dir.glob("part_*.wav"))
         if not parts:
             raise RuntimeError("No part_*.wav files to concatenate")
 
-        # Create concat file list
+        # Create silence file for pauses between sentences (0.4 seconds)
+        silence_path = temp_dir / "silence.wav"
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "lavfi",
+            "-i", "anullsrc=r=24000:cl=mono",
+            "-t", "0.4",
+            silence_path
+        ], check=True, capture_output=True)
+
+        # Create concat file list with silence between chunks
         files_txt = temp_dir / "files.txt"
         with files_txt.open("w", encoding="ascii") as f:
-            for p in parts:
+            for i, p in enumerate(parts):
                 f.write(f"file '{p.resolve().as_posix()}'\n")
+                # Add silence after each chunk except the last
+                if i < len(parts) - 1:
+                    f.write(f"file '{silence_path.resolve().as_posix()}'\n")
 
         try:
             subprocess.run([
@@ -370,6 +402,8 @@ class ChatterboxTTSProvider(TTSProvider):
         finally:
             if files_txt.exists():
                 files_txt.unlink()
+            if silence_path.exists():
+                silence_path.unlink()
 
     def _apply_audio_processing(self, input_wav: Path, output_wav: Path, rate: float = 1.0):
         """
