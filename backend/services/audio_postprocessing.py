@@ -52,7 +52,9 @@ class AudioPostProcessingService:
             if torch.cuda.is_available():
                 print(f"✓ CUDA available: {torch.cuda.get_device_name(0)}")
             return True
-        except ImportError:
+        except ImportError as e:
+            if "deepspeed" in str(e).lower():
+                print("⚠ Resemble Enhance found but deepspeed missing. Run: python scripts/patch_resemble_enhance.py")
             return False
 
     def _check_deepfilter(self) -> bool:
