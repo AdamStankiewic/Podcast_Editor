@@ -10,8 +10,14 @@ Applies studio-quality enhancements to TTS-generated audio:
 import subprocess
 import shutil
 import os
+import pathlib
+import platform
 from pathlib import Path
 from typing import Optional
+
+# Fix PosixPath on Windows - resemble-enhance models saved on Linux use PosixPath in YAML
+if platform.system() == "Windows":
+    pathlib.PosixPath = pathlib.WindowsPath
 
 
 class AudioPostProcessingService:
