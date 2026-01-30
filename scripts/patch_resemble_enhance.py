@@ -2,12 +2,22 @@
 Patch resemble-enhance to make deepspeed import optional.
 
 deepspeed is only needed for training, not inference. On Windows it cannot
-be built, so we wrap the import in try/except to allow inference to work.
+be built, so we patch inference.py to import Enhancer and HParams directly
+from their source modules, bypassing train.py and the entire utils/ chain
+that hard-imports deepspeed.
+
+Import chain WITHOUT patch (fails on Windows):
+  inference.py -> train.py -> utils/__init__.py -> distributed.py -> import deepspeed (FAIL)
+                                                -> engine.py      -> import deepspeed (FAIL)
+
+Import chain WITH patch (works everywhere):
+  inference.py -> enhancer.py (Enhancer class)
+               -> hparams.py  (HParams class)
+               (train.py is never loaded)
 
 Usage:
     python scripts/patch_resemble_enhance.py
 """
-import importlib
 import sys
 from pathlib import Path
 
@@ -21,37 +31,37 @@ def patch():
         sys.exit(1)
 
     pkg_dir = Path(resemble_enhance.__file__).parent
-    train_py = pkg_dir / "enhancer" / "train.py"
+    inference_py = pkg_dir / "enhancer" / "inference.py"
 
-    if not train_py.exists():
-        print(f"Could not find {train_py}")
+    if not inference_py.exists():
+        print(f"Could not find {inference_py}")
         sys.exit(1)
 
-    content = train_py.read_text(encoding="utf-8")
+    content = inference_py.read_text(encoding="utf-8")
 
     # Check if already patched
-    if "except ImportError" in content and "DeepSpeedConfig = None" in content:
+    if "from .enhancer import Enhancer" in content and "from .hparams import HParams" in content:
         print("Already patched!")
         return
 
-    # Replace the hard import with a try/except
-    old = "from deepspeed import DeepSpeedConfig"
+    # Replace: from .train import Enhancer, HParams
+    # With direct imports that bypass train.py (and its deepspeed dependency chain)
+    old = "from .train import Enhancer, HParams"
     new = (
-        "try:\n"
-        "    from deepspeed import DeepSpeedConfig\n"
-        "except ImportError:\n"
-        "    DeepSpeedConfig = None  # deepspeed only needed for training, not inference"
+        "from .enhancer import Enhancer  # patched: bypass train.py to avoid deepspeed\n"
+        "from .hparams import HParams    # patched: bypass train.py to avoid deepspeed"
     )
 
     if old not in content:
-        print(f"Could not find the deepspeed import line in {train_py}")
+        print(f"Could not find 'from .train import Enhancer, HParams' in {inference_py}")
         print("The file may have already been modified or the package version changed.")
         sys.exit(1)
 
     patched = content.replace(old, new)
-    train_py.write_text(patched, encoding="utf-8")
-    print(f"Patched {train_py}")
-    print("deepspeed import is now optional - inference will work without it.")
+    inference_py.write_text(patched, encoding="utf-8")
+    print(f"Patched {inference_py}")
+    print("inference.py now imports directly from enhancer.py and hparams.py,")
+    print("bypassing train.py and its deepspeed dependency chain.")
 
 
 if __name__ == "__main__":
