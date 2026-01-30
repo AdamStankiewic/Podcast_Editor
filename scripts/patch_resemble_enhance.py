@@ -1,25 +1,52 @@
 """
-Patch resemble-enhance to make deepspeed import optional.
+Patch resemble-enhance to remove deepspeed dependency for inference.
 
 deepspeed is only needed for training, not inference. On Windows it cannot
-be built, so we patch inference.py to import Enhancer and HParams directly
+be built, so we patch both inference.py files to import model classes directly
 from their source modules, bypassing train.py and the entire utils/ chain
 that hard-imports deepspeed.
 
-Import chain WITHOUT patch (fails on Windows):
-  inference.py -> train.py -> utils/__init__.py -> distributed.py -> import deepspeed (FAIL)
-                                                -> engine.py      -> import deepspeed (FAIL)
+Files patched:
+  enhancer/inference.py - imports Enhancer, HParams from enhancer.py, hparams.py
+  denoiser/inference.py - imports Denoiser, HParams from denoiser.py, hparams.py
+
+Import chain WITHOUT patch (fails without deepspeed):
+  inference.py -> train.py -> utils/__init__.py -> distributed.py -> import deepspeed
+                                                -> engine.py      -> import deepspeed
 
 Import chain WITH patch (works everywhere):
-  inference.py -> enhancer.py (Enhancer class)
-               -> hparams.py  (HParams class)
+  inference.py -> enhancer.py / denoiser.py (model class)
+               -> hparams.py               (HParams class)
                (train.py is never loaded)
 
 Usage:
+    pip install resemble-enhance --no-deps
     python scripts/patch_resemble_enhance.py
 """
 import sys
 from pathlib import Path
+
+
+PATCHES = [
+    {
+        "file": ("enhancer", "inference.py"),
+        "old": "from .train import Enhancer, HParams",
+        "new": (
+            "from .enhancer import Enhancer  # patched: bypass train.py to avoid deepspeed\n"
+            "from .hparams import HParams    # patched: bypass train.py to avoid deepspeed"
+        ),
+        "check": "from .enhancer import Enhancer",
+    },
+    {
+        "file": ("denoiser", "inference.py"),
+        "old": "from .train import Denoiser, HParams",
+        "new": (
+            "from .denoiser import Denoiser  # patched: bypass train.py to avoid deepspeed\n"
+            "from .hparams import HParams    # patched: bypass train.py to avoid deepspeed"
+        ),
+        "check": "from .denoiser import Denoiser",
+    },
+]
 
 
 def patch():
@@ -31,37 +58,43 @@ def patch():
         sys.exit(1)
 
     pkg_dir = Path(resemble_enhance.__file__).parent
-    inference_py = pkg_dir / "enhancer" / "inference.py"
+    patched_count = 0
+    skipped_count = 0
 
-    if not inference_py.exists():
-        print(f"Could not find {inference_py}")
-        sys.exit(1)
+    for p in PATCHES:
+        filepath = pkg_dir.joinpath(*p["file"])
 
-    content = inference_py.read_text(encoding="utf-8")
+        if not filepath.exists():
+            print(f"WARNING: Could not find {filepath}, skipping")
+            continue
 
-    # Check if already patched
-    if "from .enhancer import Enhancer" in content and "from .hparams import HParams" in content:
-        print("Already patched!")
-        return
+        content = filepath.read_text(encoding="utf-8")
 
-    # Replace: from .train import Enhancer, HParams
-    # With direct imports that bypass train.py (and its deepspeed dependency chain)
-    old = "from .train import Enhancer, HParams"
-    new = (
-        "from .enhancer import Enhancer  # patched: bypass train.py to avoid deepspeed\n"
-        "from .hparams import HParams    # patched: bypass train.py to avoid deepspeed"
-    )
+        # Check if already patched
+        if p["check"] in content:
+            print(f"Already patched: {filepath.name}")
+            skipped_count += 1
+            continue
 
-    if old not in content:
-        print(f"Could not find 'from .train import Enhancer, HParams' in {inference_py}")
-        print("The file may have already been modified or the package version changed.")
-        sys.exit(1)
+        if p["old"] not in content:
+            print(f"WARNING: Could not find expected import in {filepath}")
+            print(f"  Expected: {p['old']}")
+            continue
 
-    patched = content.replace(old, new)
-    inference_py.write_text(patched, encoding="utf-8")
-    print(f"Patched {inference_py}")
-    print("inference.py now imports directly from enhancer.py and hparams.py,")
-    print("bypassing train.py and its deepspeed dependency chain.")
+        patched_content = content.replace(p["old"], p["new"])
+        filepath.write_text(patched_content, encoding="utf-8")
+        print(f"Patched: {filepath}")
+        patched_count += 1
+
+    print()
+    if patched_count > 0:
+        print(f"Done! Patched {patched_count} file(s).")
+    if skipped_count > 0:
+        print(f"Skipped {skipped_count} file(s) (already patched).")
+    if patched_count == 0 and skipped_count == 0:
+        print("Nothing to patch.")
+    else:
+        print("Inference will now work without deepspeed installed.")
 
 
 if __name__ == "__main__":
