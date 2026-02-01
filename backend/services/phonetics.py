@@ -141,61 +141,15 @@ class PhoneticsService:
             "total_rules_applied": text.count("<sub ") + text.count("<phoneme ")
         }
 
-    # Roman numeral to Polish ordinal mapping (most common centuries/numbers)
-    _ROMAN_TO_POLISH = {
-        'I': 'pierwszego', 'II': 'drugiego', 'III': 'trzeciego',
-        'IV': 'czwartego', 'V': 'piątego', 'VI': 'szóstego',
-        'VII': 'siódmego', 'VIII': 'ósmego', 'IX': 'dziewiątego',
-        'X': 'dziesiątego', 'XI': 'jedenastego', 'XII': 'dwunastego',
-        'XIII': 'trzynastego', 'XIV': 'czternastego', 'XV': 'piętnastego',
-        'XVI': 'szesnastego', 'XVII': 'siedemnastego', 'XVIII': 'osiemnastego',
-        'XIX': 'dziewiętnastego', 'XX': 'dwudziestego', 'XXI': 'dwudziestego pierwszego',
-    }
-
-    def _expand_roman_numerals(self, text: str) -> Tuple[str, int]:
-        """
-        Replace Roman numerals (I-XXI) with Polish ordinal words.
-        Only matches standalone Roman numerals (e.g. 'XIX wieku' but not 'I' as pronoun).
-        """
-        count = 0
-
-        def replace_roman(match):
-            nonlocal count
-            roman = match.group(1)
-            if roman in self._ROMAN_TO_POLISH:
-                count += 1
-                return self._ROMAN_TO_POLISH[roman]
-            return roman
-
-        # Match Roman numerals followed by Polish context words (wieku, wiek, stulecie, etc.)
-        # or preceded by context like "w" (w XIX wieku)
-        # Pattern: standalone Roman numeral (II-XXI) that looks like a numeral, not a word
-        # We match Roman numerals that are:
-        # 1. Followed by typical Polish words: wieku, wiek, wieka, stulecia, etc.
-        # 2. Or multi-char Roman numerals (II+) standing alone
-        result = re.sub(
-            r'\b(XXI|XX|XIX|XVIII|XVII|XVI|XV|XIV|XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II)\b'
-            r'(?=\s+(?:wieku|wiek|wieka|wieków|stulecia|stuleciu|wieku))',
-            replace_roman,
-            text
-        )
-
-        # Also match standalone multi-char Roman numerals (III+) not near Polish "I" pronoun
-        result = re.sub(
-            r'\b(XXI|XX|XIX|XVIII|XVII|XVI|XV|XIV|XIII|XII|XI|IX|VIII|VII|VI|IV|III|II)\b',
-            replace_roman,
-            result
-        )
-
-        return result, count
-
     def apply_text_replacements(self, text: str) -> Tuple[str, int]:
         """
         Apply simple text replacements without SSML tags.
 
         For use with TTS providers that don't support SSML (like Chatterbox).
         Only applies 'sub' mode rules as direct text replacements.
-        Also expands Roman numerals to Polish ordinal words.
+
+        Note: Roman numerals and number expansion are handled by the GPT
+        translation step (see translate.py prompt), not here.
 
         Args:
             text: Input text
@@ -203,18 +157,14 @@ class PhoneticsService:
         Returns:
             Tuple of (modified_text, number_of_replacements)
         """
-        result = text
-        total_replacements = 0
-
-        # First expand Roman numerals
-        result, roman_count = self._expand_roman_numerals(result)
-        total_replacements += roman_count
-
         if not self.rules:
-            return result, total_replacements
+            return text, 0
 
         # Sort rules by length (longest first)
         sorted_rules = sorted(self.rules, key=lambda r: len(r.source), reverse=True)
+
+        result = text
+        total_replacements = 0
 
         for rule in sorted_rules:
             # Only apply 'sub' mode rules (direct text replacement)
