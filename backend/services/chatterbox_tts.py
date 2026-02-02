@@ -88,9 +88,10 @@ class ChatterboxTTSProvider(TTSProvider):
         self._model_loaded = False
 
         # Chunking configuration (for long texts)
-        # Shorter chunks = better quality, fewer errors
-        self.max_chars = 250  # Reduced for better pronunciation
-        self.chunk_delay_sec = 0.3
+        # Longer chunks = better prosody continuity, fewer boundary artifacts
+        # Too short (250) = disjointed, too long (600+) = model instability
+        self.max_chars = 400
+        self.chunk_delay_sec = 0.2
         self.min_valid_wav_bytes = 10_000
 
         print(f"ChatterboxTTSProvider initialized (device={self.device}, variant={model_variant})")
@@ -368,13 +369,14 @@ class ChatterboxTTSProvider(TTSProvider):
         if not parts:
             raise RuntimeError("No part_*.wav files to concatenate")
 
-        # Create silence file for pauses between sentences (0.4 seconds)
+        # Create silence file for natural pauses between chunks (0.15 seconds)
+        # Shorter gaps sound more natural; longer gaps (0.4s) sound robotic
         silence_path = temp_dir / "silence.wav"
         subprocess.run([
             "ffmpeg", "-y",
             "-f", "lavfi",
             "-i", "anullsrc=r=24000:cl=mono",
-            "-t", "0.4",
+            "-t", "0.15",
             silence_path
         ], check=True, capture_output=True)
 
@@ -424,17 +426,20 @@ class ChatterboxTTSProvider(TTSProvider):
                 tempo = max(0.5, min(2.0, rate))
                 filters.append(f"atempo={tempo}")
 
-            # Loudness normalization (podcast standard: -19 LUFS)
-            filters.append("loudnorm=I=-19:TP=-2:LRA=16")
+            # Note: loudness normalization is handled by audio_postprocessing step
+            # to avoid double-normalization which degrades quality
 
-            filter_chain = ",".join(filters)
-
-            subprocess.run([
-                "ffmpeg", "-y",
-                "-i", str(input_wav),
-                "-af", filter_chain,
-                str(output_wav)
-            ], check=True, capture_output=True)
+            if filters:
+                filter_chain = ",".join(filters)
+                subprocess.run([
+                    "ffmpeg", "-y",
+                    "-i", str(input_wav),
+                    "-af", filter_chain,
+                    str(output_wav)
+                ], check=True, capture_output=True)
+            else:
+                # No processing needed, just copy
+                shutil.copy2(str(input_wav), str(output_wav))
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Audio processing failed: {e.stderr.decode() if e.stderr else 'unknown'}")
