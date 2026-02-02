@@ -144,42 +144,59 @@ class YouTubeService:
     @staticmethod
     def download_video(url: str, output_path: Path) -> Path:
         """
-        Download video from YouTube
+        Download video from YouTube with multi-strategy fallback.
+
+        Tries multiple approaches to handle YouTube SABR streaming restrictions:
+        1. Best separate streams (highest quality)
+        2. Best separate streams with missing_pot formats allowed
+        3. Best combined format (lower quality but bypasses SABR)
+        4. All above with cookies if configured
+
         Returns path to downloaded file
         """
         # Normalize URL first
         url = YouTubeService.normalize_url(url)
 
-        try:
-            # Download best quality video with audio
-            # Use bv*+ba/b format to handle YouTube SABR streaming restrictions
-            # which block separate video+audio stream downloads
-            _run_ytdlp(
-                [
-                    "-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b",
-                    "--merge-output-format", "mp4",
-                    "-o", str(output_path),
-                    "--no-playlist",
-                    "--retries", "10",
-                    "--fragment-retries", "10",
-                    "--socket-timeout", "30",
-                    "--no-abort-on-unavailable-fragments",
-                    url
-                ],
-                timeout=3600
-            )
+        base_args = [
+            "--merge-output-format", "mp4",
+            "-o", str(output_path),
+            "--no-playlist",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--socket-timeout", "30",
+            "--no-abort-on-unavailable-fragments",
+        ]
 
-            if not output_path.exists():
-                raise RuntimeError(f"Download completed but file not found: {output_path}")
+        # Strategies ordered from best quality to most compatible
+        strategies = [
+            # Strategy 1: Best separate streams
+            ["-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"] + base_args + [url],
+            # Strategy 2: Allow formats with missing POT (proof of origin token)
+            ["-f", "bv*+ba/b", "--extractor-args", "youtube:formats=missing_pot"] + base_args + [url],
+            # Strategy 3: Best single combined format (bypasses SABR completely)
+            ["-f", "b[ext=mp4]/b"] + base_args + [url],
+        ]
 
-            return output_path
+        last_error = None
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Download timeout (>1 hour)")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"yt-dlp failed: {e.stderr}")
-        except Exception as e:
-            raise RuntimeError(f"Download error: {e}")
+        for i, strategy_args in enumerate(strategies):
+            try:
+                # Clean up partial download from previous attempt
+                if output_path.exists():
+                    output_path.unlink()
+
+                _run_ytdlp(strategy_args, timeout=3600)
+
+                if output_path.exists():
+                    return output_path
+
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Download timeout (>1 hour)")
+            except (subprocess.CalledProcessError, Exception) as e:
+                last_error = e
+                continue
+
+        raise RuntimeError(f"All download strategies failed. Last error: {last_error}")
 
     @staticmethod
     def download_subtitles(url: str, output_path: Path, lang: str = "de") -> Optional[Path]:
