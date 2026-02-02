@@ -2,6 +2,7 @@
 Celery tasks for podcast processing pipeline with multi-language support
 New architecture: Separate tasks per language with dynamic time limits
 """
+import gc
 import os
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +15,34 @@ from backend.pipeline.translate_step import translate_transcript
 from backend.pipeline.tts_step import generate_tts
 from backend.pipeline.enhance_step import enhance_audio
 from backend.pipeline.render_step import render_final_video
+
+
+def _cleanup_gpu_memory():
+    """Free GPU memory and Python objects after processing.
+
+    Unloads Resemble Enhance models, DeepFilterNet, and forces
+    garbage collection + CUDA cache clear to prevent memory leaks
+    across jobs.
+    """
+    try:
+        import torch
+
+        # Reset audio postprocessing singleton (holds Resemble Enhance state)
+        from backend.services import audio_postprocessing
+        audio_postprocessing._audio_postprocessing_service = None
+
+        # Force garbage collection
+        gc.collect()
+
+        # Clear CUDA cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            allocated = torch.cuda.memory_allocated() / 1024**3
+            reserved = torch.cuda.memory_reserved() / 1024**3
+            print(f"GPU memory after cleanup: {allocated:.1f} GB allocated, {reserved:.1f} GB reserved")
+
+    except Exception as e:
+        print(f"Warning: GPU cleanup failed: {e}")
 
 
 def calculate_orchestrator_limits(video_duration: float, num_languages: int) -> dict:
@@ -207,6 +236,11 @@ def process_language_task(self, job_id: str, language: str, video_duration: floa
             "language": language,
             "error": str(e)
         }
+
+    finally:
+        # Always free GPU/RAM after each language to prevent memory leaks
+        _cleanup_gpu_memory()
+        storage.add_log(job_id, f"[{language.upper()}] GPU memory released", "INFO")
 
 
 @celery_app.task(bind=True, name="process_podcast")
