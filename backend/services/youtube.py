@@ -4,9 +4,18 @@ Handles video download and subtitle extraction
 """
 import re
 import subprocess
+import sys
+import shutil
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+
+def _get_ytdlp_cmd():
+    """Get yt-dlp command - prefer system binary, fallback to python -m."""
+    if shutil.which("yt-dlp"):
+        return ["yt-dlp"]
+    return [sys.executable, "-m", "yt_dlp"]
 
 
 class YouTubeService:
@@ -61,8 +70,7 @@ class YouTubeService:
 
         try:
             result = subprocess.run(
-                [
-                    "yt-dlp",
+                _get_ytdlp_cmd() + [
                     "--dump-json",
                     "--no-playlist",
                     "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
@@ -97,8 +105,7 @@ class YouTubeService:
         try:
             # Download best quality video with audio
             result = subprocess.run(
-                [
-                    "yt-dlp",
+                _get_ytdlp_cmd() + [
                     "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
                     "--merge-output-format", "mp4",
                     "-o", str(output_path),
@@ -140,8 +147,7 @@ class YouTubeService:
         try:
             # Try to download auto-generated or manual subtitles
             result = subprocess.run(
-                [
-                    "yt-dlp",
+                _get_ytdlp_cmd() + [
                     "--write-auto-sub",
                     "--write-sub",
                     "--sub-lang", lang,
