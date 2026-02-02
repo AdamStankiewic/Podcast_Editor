@@ -2,13 +2,14 @@
 YouTube download service using yt-dlp
 Handles video download and subtitle extraction
 """
+import os
 import re
 import subprocess
 import sys
 import shutil
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 def _get_ytdlp_cmd():
@@ -16,6 +17,22 @@ def _get_ytdlp_cmd():
     if shutil.which("yt-dlp"):
         return ["yt-dlp"]
     return [sys.executable, "-m", "yt_dlp"]
+
+
+def _get_cookie_args() -> List[str]:
+    """Get cookie arguments for yt-dlp to help bypass YouTube SABR/403 restrictions.
+
+    Set YTDLP_COOKIES_BROWSER env var (e.g. "chrome", "firefox", "brave")
+    or YTDLP_COOKIES_FILE for a cookies.txt path.
+    """
+    cookies_browser = os.getenv("YTDLP_COOKIES_BROWSER", "")
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "")
+
+    if cookies_browser:
+        return ["--cookies-from-browser", cookies_browser]
+    elif cookies_file and Path(cookies_file).exists():
+        return ["--cookies", cookies_file]
+    return []
 
 
 class YouTubeService:
@@ -70,7 +87,7 @@ class YouTubeService:
 
         try:
             result = subprocess.run(
-                _get_ytdlp_cmd() + [
+                _get_ytdlp_cmd() + _get_cookie_args() + [
                     "--dump-json",
                     "--no-playlist",
                     url
@@ -103,9 +120,11 @@ class YouTubeService:
 
         try:
             # Download best quality video with audio
+            # Use bv*+ba/b format to handle YouTube SABR streaming restrictions
+            # which block separate video+audio stream downloads
             result = subprocess.run(
-                _get_ytdlp_cmd() + [
-                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                _get_ytdlp_cmd() + _get_cookie_args() + [
+                    "-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b",
                     "--merge-output-format", "mp4",
                     "-o", str(output_path),
                     "--no-playlist",
@@ -145,7 +164,7 @@ class YouTubeService:
         try:
             # Try to download auto-generated or manual subtitles
             result = subprocess.run(
-                _get_ytdlp_cmd() + [
+                _get_ytdlp_cmd() + _get_cookie_args() + [
                     "--write-auto-sub",
                     "--write-sub",
                     "--sub-lang", lang,
