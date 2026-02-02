@@ -61,10 +61,11 @@ LRA           = 11        # wysoko -> zachowuje dynamike
 # Resemble Enhance
 ENABLE_ENHANCE = True     # True = uzyj Resemble Enhance
 
-RAW_FILE          = 'troja_dluzszy_raw.wav'
-RAW_ENHANCED_FILE = 'troja_dluzszy_raw_enhanced.wav'
-OUTPUT_FILE       = 'troja_dluzszy_podcast.wav'
-ENHANCED_FILE     = 'troja_dluzszy_enhanced.wav'
+RAW_FILE               = 'troja_dluzszy_raw.wav'
+RAW_ENHANCED_FILE      = 'troja_dluzszy_raw_enhanced.wav'
+RAW_ENHANCED_NORM_FILE = 'troja_dluzszy_raw_enhanced_norm.wav'
+OUTPUT_FILE            = 'troja_dluzszy_podcast.wav'
+ENHANCED_FILE          = 'troja_dluzszy_enhanced.wav'
 
 # Dluzszy tekst - historia Troi + Iliada
 paragraphs = [
@@ -174,6 +175,17 @@ def run_enhance(input_file, output_file, label):
 if ENABLE_ENHANCE:
     run_enhance(RAW_FILE, RAW_ENHANCED_FILE, 'surowy')
 
+    # Normalizacja glosnosci na raw_enhanced (-16 LUFS = standard podcastowy)
+    if os.path.exists(RAW_ENHANCED_FILE):
+        print(f'Normalizacja glosnosci ({LOUDNESS} LUFS)...')
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', RAW_ENHANCED_FILE,
+            '-af', f'loudnorm=I={LOUDNESS}:TP=-1.5:LRA={LRA}',
+            RAW_ENHANCED_NORM_FILE
+        ], check=True)
+        print(f'Zapisano znormalizowany: {RAW_ENHANCED_NORM_FILE}')
+
 # =============================================
 # KROK 4: ffmpeg - minimalna obrobka
 # =============================================
@@ -202,6 +214,8 @@ print('Gotowe! Pliki:')
 print(f'  1. Surowy TTS:            {os.path.abspath(RAW_FILE)}')
 if ENABLE_ENHANCE and os.path.exists(RAW_ENHANCED_FILE):
     print(f'  2. Surowy + Enhance:      {os.path.abspath(RAW_ENHANCED_FILE)}')
+if ENABLE_ENHANCE and os.path.exists(RAW_ENHANCED_NORM_FILE):
+    print(f'  2b. Enhance + loudnorm:   {os.path.abspath(RAW_ENHANCED_NORM_FILE)}  <-- BEST')
 print(f'  3. Po ffmpeg:             {os.path.abspath(OUTPUT_FILE)}')
 if ENABLE_ENHANCE and os.path.exists(ENHANCED_FILE):
     print(f'  4. ffmpeg + Enhance:      {os.path.abspath(ENHANCED_FILE)}')
