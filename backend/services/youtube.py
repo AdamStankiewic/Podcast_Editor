@@ -35,6 +35,45 @@ def _get_cookie_args() -> List[str]:
     return []
 
 
+def _run_ytdlp(args: List[str], timeout: int = 180, retry_with_cookies: bool = True) -> subprocess.CompletedProcess:
+    """Run yt-dlp command with automatic retry using cookies on 403 errors.
+
+    First tries without cookies. If it fails with a 403 error and cookies
+    are configured, retries with cookies.
+    """
+    cmd = _get_ytdlp_cmd() + args
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        is_403 = "403" in (e.stderr or "") or "403" in (e.stdout or "")
+        cookie_args = _get_cookie_args()
+
+        if is_403 and retry_with_cookies and cookie_args:
+            # Retry with cookies
+            cmd_with_cookies = _get_ytdlp_cmd() + cookie_args + args
+            try:
+                result = subprocess.run(
+                    cmd_with_cookies,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=timeout
+                )
+                return result
+            except subprocess.CalledProcessError:
+                pass  # Fall through to raise original error
+
+        raise
+
+
 class YouTubeService:
     """Handles YouTube video downloads and metadata extraction"""
 
@@ -86,16 +125,9 @@ class YouTubeService:
         url = YouTubeService.normalize_url(url)
 
         try:
-            result = subprocess.run(
-                _get_ytdlp_cmd() + _get_cookie_args() + [
-                    "--dump-json",
-                    "--no-playlist",
-                    url
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=180  # 3 minutes for slow connections or YouTube API delays
+            result = _run_ytdlp(
+                ["--dump-json", "--no-playlist", url],
+                timeout=180
             )
 
             info = json.loads(result.stdout)
@@ -122,8 +154,8 @@ class YouTubeService:
             # Download best quality video with audio
             # Use bv*+ba/b format to handle YouTube SABR streaming restrictions
             # which block separate video+audio stream downloads
-            result = subprocess.run(
-                _get_ytdlp_cmd() + _get_cookie_args() + [
+            _run_ytdlp(
+                [
                     "-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b",
                     "--merge-output-format", "mp4",
                     "-o", str(output_path),
@@ -134,10 +166,7 @@ class YouTubeService:
                     "--no-abort-on-unavailable-fragments",
                     url
                 ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=3600  # 1 hour timeout for long videos
+                timeout=3600
             )
 
             if not output_path.exists():
@@ -163,8 +192,8 @@ class YouTubeService:
 
         try:
             # Try to download auto-generated or manual subtitles
-            result = subprocess.run(
-                _get_ytdlp_cmd() + _get_cookie_args() + [
+            _run_ytdlp(
+                [
                     "--write-auto-sub",
                     "--write-sub",
                     "--sub-lang", lang,
@@ -173,10 +202,7 @@ class YouTubeService:
                     "-o", str(output_path.with_suffix("")),
                     url
                 ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=180  # 3 minutes for slow connections or large subtitle files
+                timeout=180
             )
 
             # Look for generated subtitle files
