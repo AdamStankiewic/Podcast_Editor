@@ -53,7 +53,7 @@ def enhance_audio(
             enable_ai_enhance=True,  # Enable Resemble Enhance (AI voice enhancement)
             enable_denoise=True,  # Enable DeepFilterNet if Resemble not available
             enable_studio_chain=False,  # Skip EQ/compression - Resemble Enhance is enough
-            target_lufs=-14.0  # Louder target for podcast narration
+            target_lufs=-17.0  # Quieter, natural podcast level
         )
 
         audio_postprocessing.process_audio(
