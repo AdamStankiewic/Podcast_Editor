@@ -1,10 +1,10 @@
 """
 Chatterbox TTS Provider
 
-Uses Resemble AI's Chatterbox Multilingual for high-quality TTS with:
-- Voice cloning (zero-shot)
-- Emotion/exaggeration control
-- 23 language support
+Uses Resemble AI's Chatterbox models for high-quality TTS:
+- Turbo (350M): English-only, 6x faster, paralinguistic tags [laugh] [cough]
+- Multilingual (500M): 23 languages, exaggeration/cfg_weight control
+- Voice cloning (zero-shot) on all variants
 - Optimized for podcast narration
 """
 import os
@@ -235,19 +235,25 @@ class ChatterboxTTSProvider(TTSProvider):
     ) -> torch.Tensor:
         """Synthesize a single text chunk"""
         try:
-            # Prepare generation kwargs
-            gen_kwargs = {
-                "exaggeration": config.exaggeration,
-                "cfg_weight": config.cfg_weight
-            }
+            # Prepare generation kwargs based on model variant
+            gen_kwargs = {}
 
             # Add reference audio if available (voice cloning)
             if ref_audio and Path(ref_audio).exists():
                 gen_kwargs["audio_prompt_path"] = ref_audio
 
-            # Add language for multilingual model
-            if self.model_variant == "multilingual":
+            if self.model_variant == "turbo":
+                # Turbo: English-only, minimal params, supports paralinguistic tags
+                pass
+            elif self.model_variant == "multilingual":
+                # Multilingual: exaggeration, cfg_weight, language_id
+                gen_kwargs["exaggeration"] = config.exaggeration
+                gen_kwargs["cfg_weight"] = config.cfg_weight
                 gen_kwargs["language_id"] = config.target_language
+            else:
+                # Standard: exaggeration, cfg_weight (English only)
+                gen_kwargs["exaggeration"] = config.exaggeration
+                gen_kwargs["cfg_weight"] = config.cfg_weight
 
             # Generate audio
             wav = self.model.generate(text, **gen_kwargs)
@@ -375,7 +381,7 @@ class ChatterboxTTSProvider(TTSProvider):
         subprocess.run([
             "ffmpeg", "-y",
             "-f", "lavfi",
-            "-i", "anullsrc=r=24000:cl=mono",
+            "-i", f"anullsrc=r={self.model.sr}:cl=mono",
             "-t", "0.15",
             silence_path
         ], check=True, capture_output=True)

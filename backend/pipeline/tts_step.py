@@ -125,8 +125,13 @@ def generate_tts(
             cfg_weight=cfg_weight if cfg_weight is not None else float(os.getenv("CHATTERBOX_CFG_WEIGHT", "0.5"))
         )
 
-        # Get provider
-        model_variant = os.getenv("CHATTERBOX_MODEL", "multilingual")
+        # Get provider - use Turbo for English (faster, paralinguistic tags),
+        # Multilingual for all other languages
+        model_variant_env = os.getenv("CHATTERBOX_MODEL", "auto")
+        if model_variant_env == "auto":
+            model_variant = "turbo" if target_language == "en" else "multilingual"
+        else:
+            model_variant = model_variant_env
         provider = get_tts_provider(
             provider_type,
             model_variant=model_variant,
