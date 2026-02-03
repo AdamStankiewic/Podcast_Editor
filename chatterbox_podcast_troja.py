@@ -150,7 +150,9 @@ def run_clearvoice(input_file, output_file):
         print('  ClearerVoice niedostepny - pip install clearvoice')
         return False
     except Exception as e:
+        import traceback
         print(f'  ClearerVoice blad: {e}')
+        traceback.print_exc()
         return False
 
 
