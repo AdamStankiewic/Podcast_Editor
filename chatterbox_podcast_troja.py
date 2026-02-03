@@ -2,10 +2,10 @@
 # Uruchom: python chatterbox_podcast_troja.py
 #
 # Porownanie enhancerow:
-#   python chatterbox_podcast_troja.py              - Resemble Enhance
-#   python chatterbox_podcast_troja.py --clearvoice  - ClearerVoice-Studio
-#   python chatterbox_podcast_troja.py --all         - wszystkie warianty
-#   python chatterbox_podcast_troja.py --hq          - tryb HQ (nfe=128)
+#   python chatterbox_podcast_troja.py                  - wszystkie warianty (domyslnie)
+#   python chatterbox_podcast_troja.py --resemble-only  - tylko Resemble Enhance
+#   python chatterbox_podcast_troja.py --clearvoice-only - tylko ClearerVoice-Studio
+#   python chatterbox_podcast_troja.py --hq             - tryb HQ (nfe=128)
 #
 # Generuje pliki do porownania:
 #   1. troja_raw.wav                    - surowy TTS
@@ -36,8 +36,10 @@ from backend.services.phonetics import PhoneticsService
 # FLAGI
 # =============================================
 HQ_MODE = '--hq' in sys.argv
-USE_CLEARVOICE = '--clearvoice' in sys.argv or '--all' in sys.argv
-USE_RESEMBLE = '--clearvoice' not in sys.argv or '--all' in sys.argv
+# Domyslnie generuj wszystkie warianty
+# Uzyj --resemble-only lub --clearvoice-only zeby ograniczyc
+USE_CLEARVOICE = '--resemble-only' not in sys.argv
+USE_RESEMBLE = '--clearvoice-only' not in sys.argv
 
 # =============================================
 # KONFIGURACJA
