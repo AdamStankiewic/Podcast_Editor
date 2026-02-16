@@ -217,6 +217,99 @@ class YouTubeService:
         return "\n".join(text_lines)
 
     @staticmethod
+    def parse_vtt_with_timestamps(vtt_path: Path) -> list[dict]:
+        """
+        Parse VTT subtitle file preserving timestamps.
+        Returns list of segments: [{"start": float, "end": float, "text": str}, ...]
+
+        Merges overlapping/duplicate YouTube auto-sub entries into clean segments.
+        """
+        if not vtt_path.exists():
+            return []
+
+        def _vtt_time_to_seconds(time_str: str) -> float:
+            """Convert VTT timestamp (HH:MM:SS.mmm or MM:SS.mmm) to seconds"""
+            time_str = time_str.strip()
+            parts = time_str.split(":")
+            if len(parts) == 3:
+                h, m, s = parts
+                return int(h) * 3600 + int(m) * 60 + float(s)
+            elif len(parts) == 2:
+                m, s = parts
+                return int(m) * 60 + float(s)
+            return 0.0
+
+        with vtt_path.open("r", encoding="utf-8") as f:
+            content = f.read()
+
+        segments = []
+        # Split into cue blocks (separated by blank lines)
+        blocks = re.split(r'\n\s*\n', content)
+
+        for block in blocks:
+            lines = block.strip().splitlines()
+            if not lines:
+                continue
+
+            # Find timestamp line
+            ts_line = None
+            text_lines = []
+            for line in lines:
+                if "-->" in line:
+                    ts_line = line
+                elif ts_line is not None and line.strip():
+                    # Skip cue identifiers (pure numbers or WEBVTT header)
+                    if not line.strip().isdigit() and not line.strip().startswith("WEBVTT"):
+                        text_lines.append(line.strip())
+
+            if not ts_line or not text_lines:
+                continue
+
+            # Parse timestamps (ignore position tags after timestamp)
+            ts_match = re.match(r'([\d:\.]+)\s*-->\s*([\d:\.]+)', ts_line)
+            if not ts_match:
+                continue
+
+            start = _vtt_time_to_seconds(ts_match.group(1))
+            end = _vtt_time_to_seconds(ts_match.group(2))
+
+            # Clean text: remove HTML tags
+            raw_text = " ".join(text_lines)
+            clean_text = re.sub(r'<[^>]+>', '', raw_text).strip()
+
+            if not clean_text:
+                continue
+
+            segments.append({"start": start, "end": end, "text": clean_text})
+
+        # Merge: remove exact duplicate consecutive segments, merge overlaps
+        merged = []
+        for seg in segments:
+            if not merged:
+                merged.append(seg)
+                continue
+
+            prev = merged[-1]
+            # Skip if identical text repeated immediately
+            if seg["text"] == prev["text"]:
+                # Extend end time if overlapping
+                merged[-1]["end"] = max(prev["end"], seg["end"])
+                continue
+
+            # Extend previous segment if heavy overlap (>80% of new segment)
+            overlap = max(0, prev["end"] - seg["start"])
+            seg_duration = seg["end"] - seg["start"]
+            if seg_duration > 0 and overlap / seg_duration > 0.8:
+                # Append new text to previous
+                merged[-1]["text"] = prev["text"].rstrip() + " " + seg["text"]
+                merged[-1]["end"] = max(prev["end"], seg["end"])
+                continue
+
+            merged.append(dict(seg))
+
+        return merged
+
+    @staticmethod
     def get_video_duration_ffprobe(video_path: Path) -> float:
         """Get video duration using ffprobe"""
         try:
