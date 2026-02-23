@@ -243,10 +243,18 @@ NAZWY WŁASNE I TERMINY HISTORYCZNE:
 - Nazwiska osób zostaw w oryginale: "Napoleon Bonaparte" → "Napoleon Bonaparte"
 - Jeśli nie znasz polskiego terminu, użyj transliteracji a nie dosłownego tłumaczenia
 
-LICZBY I DATY - PISZ SŁOWNIE:
-- Lata: "1945" → "tysiąc dziewięćset czterdzieści pięć" lub "rok tysiąc dziewięćset czterdzieści pięć"
-- Liczby: "500 żołnierzy" → "pięćset żołnierzy"
-- Daty: "15 maja 1945" → "piętnastego maja tysiąc dziewięćset czterdzieści pięć"
+LICZBY I DATY - PISZ SŁOWNIE Z WŁAŚCIWĄ ODMIANĄ PRZEZ PRZYPADKI:
+- KLUCZOWE: Odmieniaj liczby przez WŁAŚCIWY przypadek gramatyczny wynikający z kontekstu!
+- LATA - odmieniaj zależnie od przyimka i kontekstu:
+  ✅ "rok 1945" → "rok tysiąc dziewięćset czterdzieści pięć" (mianownik)
+  ✅ "w 1945 roku" → "w tysiąc dziewięćset czterdziestym piątym roku" (miejscownik)
+  ✅ "około 1962 roku" → "około tysiąc dziewięćset sześćdziesiątego drugiego roku" (dopełniacz)
+  ✅ "do 1939 roku" → "do tysiąc dziewięćset trzydziestego dziewiątego roku" (dopełniacz)
+  ✅ "od 1918 roku" → "od tysiąc dziewięćset osiemnastego roku" (dopełniacz)
+  ✅ "z 1918 roku" → "z tysiąc dziewięćset osiemnastego roku" (dopełniacz)
+  ❌ NIE pisz: "około tysiąc dziewięćset sześćdziesiąt dwa roku" (błąd przypadku!)
+- DATY: "15 maja 1945 roku" → "piętnastego maja tysiąc dziewięćset czterdziestego piątego roku" (dopełniacz)
+- LICZBY z rzeczownikami: dostosuj przypadek do kontekstu ("pięciuset żołnierzy" lub "pięćset żołnierzy")
 - Liczby rzymskie: "XVII wieku" → "siedemnastego wieku", "XX wieku" → "dwudziestego wieku", "II wojny" → "drugiej wojny"
 - Wyjątki: Jeśli w oryginalnym tekście liczba jest cyfrą (np. w nazwie "Grupa 47"), zostaw cyfrę
 
@@ -793,11 +801,21 @@ SPRAWDŹ I POPRAW (4 kluczowe aspekty):
    ✅ Zdania o odpowiedniej długości
    ✅ Naturalne dla mówionego języka
 
+5. ODMIANA LICZB PRZEZ PRZYPADKI - czy liczby są poprawnie odmienione?
+   ❌ "około tysiąc dziewięćset sześćdziesiąt dwa roku" (mianownik zamiast dopełniacza)
+   ❌ "do tysiąc dziewięćset czterdzieści pięć roku" (mianownik zamiast dopełniacza)
+   ❌ "w tysiąc dziewięćset czterdzieści pięć roku" (mianownik zamiast miejscownika)
+   ✅ "około tysiąc dziewięćset sześćdziesiątego drugiego roku" (dopełniacz po "około")
+   ✅ "do tysiąc dziewięćset czterdziestego piątego roku" (dopełniacz po "do")
+   ✅ "w tysiąc dziewięćset czterdziestym piątym roku" (miejscownik po "w")
+   ✅ Cyfry zamienione na słowa zawsze z właściwą odmianą
+
 WAŻNE ZASADY:
 - ZACHOWAJ długość tekstu (±5%)
 - NIE dodawaj nowych faktów
-- NIE zmieniaj dat, liczb, nazwisk
-- Popraw TYLKO błędy językowe, stylistyczne i niespójności
+- NIE zmieniaj dat ani wartości liczbowych (tylko popraw ich formę gramatyczną)
+- NIE zmieniaj nazwisk
+- Popraw TYLKO błędy językowe, stylistyczne, odmiany liczb i niespójności
 
 ODPOWIEDŹ (JSON):
 {{
