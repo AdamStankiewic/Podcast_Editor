@@ -2,11 +2,76 @@
 YouTube download service using yt-dlp
 Handles video download and subtitle extraction
 """
+import os
 import re
 import subprocess
+import sys
+import shutil
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+
+
+def _get_ytdlp_cmd():
+    """Get yt-dlp command - prefer system binary, fallback to python -m."""
+    if shutil.which("yt-dlp"):
+        return ["yt-dlp"]
+    return [sys.executable, "-m", "yt_dlp"]
+
+
+def _get_cookie_args() -> List[str]:
+    """Get cookie arguments for yt-dlp to help bypass YouTube SABR/403 restrictions.
+
+    Set YTDLP_COOKIES_BROWSER env var (e.g. "chrome", "firefox", "brave")
+    or YTDLP_COOKIES_FILE for a cookies.txt path.
+    """
+    cookies_browser = os.getenv("YTDLP_COOKIES_BROWSER", "")
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "")
+
+    if cookies_browser:
+        return ["--cookies-from-browser", cookies_browser]
+    elif cookies_file and Path(cookies_file).exists():
+        return ["--cookies", cookies_file]
+    return []
+
+
+def _run_ytdlp(args: List[str], timeout: int = 180, retry_with_cookies: bool = True) -> subprocess.CompletedProcess:
+    """Run yt-dlp command with automatic retry using cookies on 403 errors.
+
+    First tries without cookies. If it fails with a 403 error and cookies
+    are configured, retries with cookies.
+    """
+    cmd = _get_ytdlp_cmd() + args
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        is_403 = "403" in (e.stderr or "") or "403" in (e.stdout or "")
+        cookie_args = _get_cookie_args()
+
+        if is_403 and retry_with_cookies and cookie_args:
+            # Retry with cookies
+            cmd_with_cookies = _get_ytdlp_cmd() + cookie_args + args
+            try:
+                result = subprocess.run(
+                    cmd_with_cookies,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=timeout
+                )
+                return result
+            except subprocess.CalledProcessError:
+                pass  # Fall through to raise original error
+
+        raise
 
 
 class YouTubeService:
@@ -60,20 +125,9 @@ class YouTubeService:
         url = YouTubeService.normalize_url(url)
 
         try:
-            result = subprocess.run(
-                [
-                    "yt-dlp",
-                    "--dump-json",
-                    "--no-playlist",
-                    "--extractor-args", "youtube:player_client=default,-web,-web_safari",
-                    url
-                ],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True,
-                timeout=180  # 3 minutes for slow connections or YouTube API delays
+            result = _run_ytdlp(
+                ["--dump-json", "--no-playlist", url],
+                timeout=180
             )
 
             info = json.loads(result.stdout)
@@ -84,60 +138,69 @@ class YouTubeService:
                 "description": info.get("description"),
                 "uploader": info.get("uploader"),
             }
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Failed to get video info: yt-dlp returned no valid output for URL: {url}. stderr: {result.stderr[:500] if result.stderr else 'empty'}")
         except subprocess.CalledProcessError as e:
-            error_output = e.stderr if e.stderr else str(e)
-            raise RuntimeError(f"Failed to get video info: {error_output}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Failed to get video info: Request timed out after 180 seconds")
-        except json.JSONDecodeError as e:
-            raise RuntimeError(f"Failed to parse video info: Invalid JSON response from yt-dlp")
+            raise RuntimeError(f"Failed to get video info: yt-dlp exited with error: {e.stderr[:500] if e.stderr else str(e)}")
         except Exception as e:
             raise RuntimeError(f"Failed to get video info: {e}")
 
     @staticmethod
     def download_video(url: str, output_path: Path) -> Path:
         """
-        Download video from YouTube
+        Download video from YouTube with multi-strategy fallback.
+
+        Tries multiple approaches to handle YouTube SABR streaming restrictions:
+        1. Best separate streams (highest quality)
+        2. Best separate streams with missing_pot formats allowed
+        3. Best combined format (lower quality but bypasses SABR)
+        4. All above with cookies if configured
+
         Returns path to downloaded file
         """
         # Normalize URL first
         url = YouTubeService.normalize_url(url)
 
-        try:
-            # Download best quality video with audio
-            result = subprocess.run(
-                [
-                    "yt-dlp",
-                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                    "--merge-output-format", "mp4",
-                    "-o", str(output_path),
-                    "--no-playlist",
-                    "--extractor-args", "youtube:player_client=default,-web,-web_safari",
-                    "--retries", "10",
-                    "--fragment-retries", "10",
-                    "--socket-timeout", "30",
-                    "--no-abort-on-unavailable-fragments",
-                    url
-                ],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True,
-                timeout=3600  # 1 hour timeout for long videos
-            )
+        base_args = [
+            "--merge-output-format", "mp4",
+            "-o", str(output_path),
+            "--no-playlist",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--socket-timeout", "30",
+            "--no-abort-on-unavailable-fragments",
+        ]
 
-            if not output_path.exists():
-                raise RuntimeError(f"Download completed but file not found: {output_path}")
+        # Strategies ordered from best quality to most compatible
+        strategies = [
+            # Strategy 1: Best separate streams
+            ["-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"] + base_args + [url],
+            # Strategy 2: Allow formats with missing POT (proof of origin token)
+            ["-f", "bv*+ba/b", "--extractor-args", "youtube:formats=missing_pot"] + base_args + [url],
+            # Strategy 3: Best single combined format (bypasses SABR completely)
+            ["-f", "b[ext=mp4]/b"] + base_args + [url],
+        ]
 
-            return output_path
+        last_error = None
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Download timeout (>1 hour)")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"yt-dlp failed: {e.stderr}")
-        except Exception as e:
-            raise RuntimeError(f"Download error: {e}")
+        for i, strategy_args in enumerate(strategies):
+            try:
+                # Clean up partial download from previous attempt
+                if output_path.exists():
+                    output_path.unlink()
+
+                _run_ytdlp(strategy_args, timeout=3600)
+
+                if output_path.exists():
+                    return output_path
+
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Download timeout (>1 hour)")
+            except (subprocess.CalledProcessError, Exception) as e:
+                last_error = e
+                continue
+
+        raise RuntimeError(f"All download strategies failed. Last error: {last_error}")
 
     @staticmethod
     def download_subtitles(url: str, output_path: Path, lang: str = "de") -> Optional[Path]:
@@ -150,24 +213,17 @@ class YouTubeService:
 
         try:
             # Try to download auto-generated or manual subtitles
-            result = subprocess.run(
+            _run_ytdlp(
                 [
-                    "yt-dlp",
                     "--write-auto-sub",
                     "--write-sub",
                     "--sub-lang", lang,
                     "--skip-download",
                     "--sub-format", "vtt",
                     "-o", str(output_path.with_suffix("")),
-                    "--extractor-args", "youtube:player_client=default,-web,-web_safari",
                     url
                 ],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True,
-                timeout=180  # 3 minutes for slow connections or large subtitle files
+                timeout=180
             )
 
             # Look for generated subtitle files
@@ -235,6 +291,99 @@ class YouTubeService:
                 last_line = line
 
         return "\n".join(text_lines)
+
+    @staticmethod
+    def parse_vtt_with_timestamps(vtt_path: Path) -> list[dict]:
+        """
+        Parse VTT subtitle file preserving timestamps.
+        Returns list of segments: [{"start": float, "end": float, "text": str}, ...]
+
+        Merges overlapping/duplicate YouTube auto-sub entries into clean segments.
+        """
+        if not vtt_path.exists():
+            return []
+
+        def _vtt_time_to_seconds(time_str: str) -> float:
+            """Convert VTT timestamp (HH:MM:SS.mmm or MM:SS.mmm) to seconds"""
+            time_str = time_str.strip()
+            parts = time_str.split(":")
+            if len(parts) == 3:
+                h, m, s = parts
+                return int(h) * 3600 + int(m) * 60 + float(s)
+            elif len(parts) == 2:
+                m, s = parts
+                return int(m) * 60 + float(s)
+            return 0.0
+
+        with vtt_path.open("r", encoding="utf-8") as f:
+            content = f.read()
+
+        segments = []
+        # Split into cue blocks (separated by blank lines)
+        blocks = re.split(r'\n\s*\n', content)
+
+        for block in blocks:
+            lines = block.strip().splitlines()
+            if not lines:
+                continue
+
+            # Find timestamp line
+            ts_line = None
+            text_lines = []
+            for line in lines:
+                if "-->" in line:
+                    ts_line = line
+                elif ts_line is not None and line.strip():
+                    # Skip cue identifiers (pure numbers or WEBVTT header)
+                    if not line.strip().isdigit() and not line.strip().startswith("WEBVTT"):
+                        text_lines.append(line.strip())
+
+            if not ts_line or not text_lines:
+                continue
+
+            # Parse timestamps (ignore position tags after timestamp)
+            ts_match = re.match(r'([\d:\.]+)\s*-->\s*([\d:\.]+)', ts_line)
+            if not ts_match:
+                continue
+
+            start = _vtt_time_to_seconds(ts_match.group(1))
+            end = _vtt_time_to_seconds(ts_match.group(2))
+
+            # Clean text: remove HTML tags
+            raw_text = " ".join(text_lines)
+            clean_text = re.sub(r'<[^>]+>', '', raw_text).strip()
+
+            if not clean_text:
+                continue
+
+            segments.append({"start": start, "end": end, "text": clean_text})
+
+        # Merge: remove exact duplicate consecutive segments, merge overlaps
+        merged = []
+        for seg in segments:
+            if not merged:
+                merged.append(seg)
+                continue
+
+            prev = merged[-1]
+            # Skip if identical text repeated immediately
+            if seg["text"] == prev["text"]:
+                # Extend end time if overlapping
+                merged[-1]["end"] = max(prev["end"], seg["end"])
+                continue
+
+            # Extend previous segment if heavy overlap (>80% of new segment)
+            overlap = max(0, prev["end"] - seg["start"])
+            seg_duration = seg["end"] - seg["start"]
+            if seg_duration > 0 and overlap / seg_duration > 0.8:
+                # Append new text to previous
+                merged[-1]["text"] = prev["text"].rstrip() + " " + seg["text"]
+                merged[-1]["end"] = max(prev["end"], seg["end"])
+                continue
+
+            merged.append(dict(seg))
+
+        return merged
 
     @staticmethod
     def get_video_duration_ffprobe(video_path: Path) -> float:
