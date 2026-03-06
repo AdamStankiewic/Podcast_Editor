@@ -10,8 +10,14 @@ Applies studio-quality enhancements to TTS-generated audio:
 import subprocess
 import shutil
 import os
+import pathlib
+import platform
 from pathlib import Path
 from typing import Optional
+
+# Fix PosixPath on Windows - resemble-enhance models saved on Linux use PosixPath in YAML
+if platform.system() == "Windows":
+    pathlib.PosixPath = pathlib.WindowsPath
 
 
 class AudioPostProcessingService:
@@ -52,7 +58,9 @@ class AudioPostProcessingService:
             if torch.cuda.is_available():
                 print(f"✓ CUDA available: {torch.cuda.get_device_name(0)}")
             return True
-        except ImportError:
+        except ImportError as e:
+            if "deepspeed" in str(e).lower():
+                print("⚠ Resemble Enhance found but deepspeed missing. Run: python scripts/patch_resemble_enhance.py")
             return False
 
     def _check_deepfilter(self) -> bool:

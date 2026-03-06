@@ -42,7 +42,7 @@ def enhance_audio(
         raise RuntimeError(f"{lang_name} TTS audio not found. Run TTS step first.")
 
     storage.update_progress(job_id, "enhancing_audio", 5, message=f"Enhancing {lang_name} audio...")
-    storage.add_log(job_id, f"[{target_language.upper()}] Starting audio enhancement (Resemble Enhance + Studio Chain)...", "INFO")
+    storage.add_log(job_id, f"[{target_language.upper()}] Starting audio enhancement (Resemble Enhance + loudnorm)...", "INFO")
 
     def progress_callback(current, total, message):
         """Update progress during audio enhancement"""
@@ -52,8 +52,8 @@ def enhance_audio(
         audio_postprocessing = get_audio_postprocessing(
             enable_ai_enhance=True,  # Enable Resemble Enhance (AI voice enhancement)
             enable_denoise=True,  # Enable DeepFilterNet if Resemble not available
-            enable_studio_chain=True,  # Enable EQ + compression + limiter
-            target_lufs=-16.0  # Standard for podcasts/YouTube
+            enable_studio_chain=False,  # Skip EQ/compression - Resemble Enhance is enough
+            target_lufs=-17.0  # Quieter, natural podcast level
         )
 
         audio_postprocessing.process_audio(

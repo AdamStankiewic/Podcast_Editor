@@ -255,13 +255,13 @@ class VideoRenderService:
             # - Music is background (index 1)
             # - Music gets compressed when TTS has signal
             filter_complex = (
-                # Lower music base volume to -17dB (more audible than before)
-                "[1:a]volume=-17dB[music_low];"
+                # Lower music base volume to -7dB (clearly audible background)
+                "[1:a]volume=-7dB[music_low];"
                 # Apply sidechain compression (music ducks under voice)
                 "[music_low][0:a]sidechaincompress="
                 "threshold=0.02:ratio=6:attack=5:release=250:makeup=2[bg];"
-                # Mix voice + ducked music (reduced music weight from 0.4 to 0.15)
-                "[0:a][bg]amix=inputs=2:duration=longest:weights=1.0 0.15[out]"
+                # Mix voice + ducked music
+                "[0:a][bg]amix=inputs=2:duration=longest:weights=1.0 0.3[out]"
             )
 
             subprocess.run([

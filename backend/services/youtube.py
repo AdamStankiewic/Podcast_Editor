@@ -2,11 +2,76 @@
 YouTube download service using yt-dlp
 Handles video download and subtitle extraction
 """
+import os
 import re
 import subprocess
+import sys
+import shutil
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+
+
+def _get_ytdlp_cmd():
+    """Get yt-dlp command - prefer system binary, fallback to python -m."""
+    if shutil.which("yt-dlp"):
+        return ["yt-dlp"]
+    return [sys.executable, "-m", "yt_dlp"]
+
+
+def _get_cookie_args() -> List[str]:
+    """Get cookie arguments for yt-dlp to help bypass YouTube SABR/403 restrictions.
+
+    Set YTDLP_COOKIES_BROWSER env var (e.g. "chrome", "firefox", "brave")
+    or YTDLP_COOKIES_FILE for a cookies.txt path.
+    """
+    cookies_browser = os.getenv("YTDLP_COOKIES_BROWSER", "")
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "")
+
+    if cookies_browser:
+        return ["--cookies-from-browser", cookies_browser]
+    elif cookies_file and Path(cookies_file).exists():
+        return ["--cookies", cookies_file]
+    return []
+
+
+def _run_ytdlp(args: List[str], timeout: int = 180, retry_with_cookies: bool = True) -> subprocess.CompletedProcess:
+    """Run yt-dlp command with automatic retry using cookies on 403 errors.
+
+    First tries without cookies. If it fails with a 403 error and cookies
+    are configured, retries with cookies.
+    """
+    cmd = _get_ytdlp_cmd() + args
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=timeout
+        )
+        return result
+    except subprocess.CalledProcessError as e:
+        is_403 = "403" in (e.stderr or "") or "403" in (e.stdout or "")
+        cookie_args = _get_cookie_args()
+
+        if is_403 and retry_with_cookies and cookie_args:
+            # Retry with cookies
+            cmd_with_cookies = _get_ytdlp_cmd() + cookie_args + args
+            try:
+                result = subprocess.run(
+                    cmd_with_cookies,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=timeout
+                )
+                return result
+            except subprocess.CalledProcessError:
+                pass  # Fall through to raise original error
+
+        raise
 
 
 class YouTubeService:
@@ -60,18 +125,9 @@ class YouTubeService:
         url = YouTubeService.normalize_url(url)
 
         try:
-            result = subprocess.run(
-                [
-                    "yt-dlp",
-                    "--dump-json",
-                    "--no-playlist",
-                    "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
-                    url
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=180  # 3 minutes for slow connections or YouTube API delays
+            result = _run_ytdlp(
+                ["--dump-json", "--no-playlist", url],
+                timeout=180
             )
 
             info = json.loads(result.stdout)
@@ -88,45 +144,59 @@ class YouTubeService:
     @staticmethod
     def download_video(url: str, output_path: Path) -> Path:
         """
-        Download video from YouTube
+        Download video from YouTube with multi-strategy fallback.
+
+        Tries multiple approaches to handle YouTube SABR streaming restrictions:
+        1. Best separate streams (highest quality)
+        2. Best separate streams with missing_pot formats allowed
+        3. Best combined format (lower quality but bypasses SABR)
+        4. All above with cookies if configured
+
         Returns path to downloaded file
         """
         # Normalize URL first
         url = YouTubeService.normalize_url(url)
 
-        try:
-            # Download best quality video with audio
-            result = subprocess.run(
-                [
-                    "yt-dlp",
-                    "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                    "--merge-output-format", "mp4",
-                    "-o", str(output_path),
-                    "--no-playlist",
-                    "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
-                    "--retries", "10",
-                    "--fragment-retries", "10",
-                    "--socket-timeout", "30",
-                    "--no-abort-on-unavailable-fragments",
-                    url
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=3600  # 1 hour timeout for long videos
-            )
+        base_args = [
+            "--merge-output-format", "mp4",
+            "-o", str(output_path),
+            "--no-playlist",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--socket-timeout", "30",
+            "--no-abort-on-unavailable-fragments",
+        ]
 
-            if not output_path.exists():
-                raise RuntimeError(f"Download completed but file not found: {output_path}")
+        # Strategies ordered from best quality to most compatible
+        strategies = [
+            # Strategy 1: Best separate streams
+            ["-f", "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"] + base_args + [url],
+            # Strategy 2: Allow formats with missing POT (proof of origin token)
+            ["-f", "bv*+ba/b", "--extractor-args", "youtube:formats=missing_pot"] + base_args + [url],
+            # Strategy 3: Best single combined format (bypasses SABR completely)
+            ["-f", "b[ext=mp4]/b"] + base_args + [url],
+        ]
 
-            return output_path
+        last_error = None
 
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Download timeout (>1 hour)")
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"yt-dlp failed: {e.stderr}")
-        except Exception as e:
-            raise RuntimeError(f"Download error: {e}")
+        for i, strategy_args in enumerate(strategies):
+            try:
+                # Clean up partial download from previous attempt
+                if output_path.exists():
+                    output_path.unlink()
+
+                _run_ytdlp(strategy_args, timeout=3600)
+
+                if output_path.exists():
+                    return output_path
+
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("Download timeout (>1 hour)")
+            except (subprocess.CalledProcessError, Exception) as e:
+                last_error = e
+                continue
+
+        raise RuntimeError(f"All download strategies failed. Last error: {last_error}")
 
     @staticmethod
     def download_subtitles(url: str, output_path: Path, lang: str = "de") -> Optional[Path]:
@@ -139,22 +209,17 @@ class YouTubeService:
 
         try:
             # Try to download auto-generated or manual subtitles
-            result = subprocess.run(
+            _run_ytdlp(
                 [
-                    "yt-dlp",
                     "--write-auto-sub",
                     "--write-sub",
                     "--sub-lang", lang,
                     "--skip-download",
                     "--sub-format", "vtt",
                     "-o", str(output_path.with_suffix("")),
-                    "--extractor-args", "youtube:player_client=android,ios,tv_embedded;player_skip=webpage,configs",
                     url
                 ],
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=180  # 3 minutes for slow connections or large subtitle files
+                timeout=180
             )
 
             # Look for generated subtitle files

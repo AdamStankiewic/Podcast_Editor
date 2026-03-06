@@ -1,6 +1,8 @@
 """
 Azure TTS Batch Service - Adapted from original script
 Generates long-form audio using Azure Neural TTS with chunking and merging
+
+Also provides AzureTTSProvider implementing the TTSProvider interface.
 """
 import os
 import re
@@ -12,6 +14,13 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Callable
 import azure.cognitiveservices.speech as speechsdk
+
+from backend.services.tts_provider import (
+    TTSProvider,
+    TTSProviderType,
+    TTSConfig,
+    TTSResult
+)
 
 
 class AzureTTSBatchService:
@@ -348,3 +357,120 @@ class AzureTTSBatchService:
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Loudness normalization failed: {e.stderr.decode() if e.stderr else 'unknown'}")
+
+
+class AzureTTSProvider(TTSProvider):
+    """
+    Azure TTS Provider implementing TTSProvider interface
+
+    Wraps AzureTTSBatchService for use with the unified TTS provider system.
+    Kept as fallback option when Chatterbox is not available.
+    """
+
+    provider_type = TTSProviderType.AZURE
+
+    # Supported languages
+    SUPPORTED_LANGUAGES = {
+        "pl": "pl-PL",
+        "fr": "fr-FR",
+        "en": "en-GB",
+        "de": "de-DE",
+        "es": "es-ES",
+        "it": "it-IT"
+    }
+
+    def __init__(self, speech_key: str = None, speech_region: str = None):
+        """
+        Initialize Azure TTS Provider
+
+        Args:
+            speech_key: Azure Speech API key (or from env SPEECH_KEY)
+            speech_region: Azure region (or from env SPEECH_REGION)
+        """
+        self.speech_key = speech_key or os.getenv("SPEECH_KEY")
+        self.speech_region = speech_region or os.getenv("SPEECH_REGION", "northeurope")
+
+        if not self.speech_key:
+            raise ValueError("Azure Speech API key required (SPEECH_KEY env var or speech_key param)")
+
+    def generate_audio(
+        self,
+        text: str,
+        output_path: Path,
+        config: TTSConfig,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
+    ) -> TTSResult:
+        """
+        Generate audio using Azure TTS
+
+        Args:
+            text: Text to synthesize (may contain SSML tags)
+            output_path: Path for output WAV file
+            config: TTS configuration
+            progress_callback: Optional callback(current, total, message)
+
+        Returns:
+            TTSResult with audio path and metadata
+        """
+        # Create Azure TTS service with config
+        service = AzureTTSBatchService(
+            speech_key=config.azure_key or self.speech_key,
+            speech_region=config.azure_region or self.speech_region,
+            voice=config.voice or "en-GB-OllieMultilingualNeural",
+            rate=config.azure_rate,
+            pitch=config.azure_pitch,
+            target_language=config.target_language
+        )
+
+        # Generate audio
+        service.generate_audio(
+            text=text,
+            output_wav=output_path,
+            progress_callback=progress_callback
+        )
+
+        # Calculate duration
+        duration = self._get_audio_duration(output_path)
+
+        return TTSResult(
+            audio_path=output_path,
+            duration_seconds=duration,
+            provider=self.provider_type,
+            metadata={
+                "voice": config.voice,
+                "rate": config.azure_rate,
+                "pitch": config.azure_pitch,
+                "language": config.target_language
+            }
+        )
+
+    def _get_audio_duration(self, audio_path: Path) -> float:
+        """Get audio duration in seconds"""
+        try:
+            result = subprocess.run([
+                "ffprobe", "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(audio_path)
+            ], capture_output=True, text=True, check=True)
+            return float(result.stdout.strip())
+        except Exception:
+            return audio_path.stat().st_size / (48000 * 2 * 2)
+
+    def supports_voice_cloning(self) -> bool:
+        """Azure TTS does not support voice cloning"""
+        return False
+
+    def set_reference_audio(self, audio_path: Path) -> None:
+        """Not supported for Azure TTS"""
+        raise NotImplementedError("Azure TTS does not support voice cloning")
+
+    def get_supported_languages(self) -> list:
+        """Get list of supported language codes"""
+        return list(self.SUPPORTED_LANGUAGES.keys())
+
+    def validate_config(self, config: TTSConfig) -> tuple[bool, str]:
+        """Validate configuration"""
+        if not config.azure_key and not self.speech_key:
+            return False, "Azure Speech API key required"
+        return True, ""

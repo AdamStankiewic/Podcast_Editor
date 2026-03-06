@@ -140,3 +140,57 @@ class PhoneticsService:
             "phoneme_tags": text.count("<phoneme "),
             "total_rules_applied": text.count("<sub ") + text.count("<phoneme ")
         }
+
+    def apply_text_replacements(self, text: str) -> Tuple[str, int]:
+        """
+        Apply simple text replacements without SSML tags.
+
+        For use with TTS providers that don't support SSML (like Chatterbox).
+        Only applies 'sub' mode rules as direct text replacements.
+
+        Note: Roman numerals and number expansion are handled by the GPT
+        translation step (see translate.py prompt), not here.
+
+        Args:
+            text: Input text
+
+        Returns:
+            Tuple of (modified_text, number_of_replacements)
+        """
+        if not self.rules:
+            return text, 0
+
+        # Sort rules by length (longest first)
+        sorted_rules = sorted(self.rules, key=lambda r: len(r.source), reverse=True)
+
+        result = text
+        total_replacements = 0
+
+        for rule in sorted_rules:
+            # Only apply 'sub' mode rules (direct text replacement)
+            # Skip 'phoneme_ipa' as there's no way to represent IPA without SSML
+            if rule.mode != "sub":
+                continue
+
+            # Build regex pattern for whole word matching
+            pattern = r'\b' + re.escape(rule.source) + r'\b'
+
+            # Count matches before replacement
+            matches = len(re.findall(pattern, result, flags=re.IGNORECASE))
+
+            if matches > 0:
+                # Replace with target (preserving case of first letter if possible)
+                def smart_replace(match):
+                    original = match.group(0)
+                    target = rule.target
+                    # Preserve capitalization
+                    if original[0].isupper() and target[0].islower():
+                        target = target[0].upper() + target[1:]
+                    elif original[0].islower() and target[0].isupper():
+                        target = target[0].lower() + target[1:]
+                    return target
+
+                result = re.sub(pattern, smart_replace, result, flags=re.IGNORECASE)
+                total_replacements += matches
+
+        return result, total_replacements
