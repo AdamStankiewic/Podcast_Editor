@@ -13,6 +13,7 @@ import hashlib
 import subprocess
 from pathlib import Path
 from typing import Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import azure.cognitiveservices.speech as speechsdk
 
 from backend.services.tts_provider import (
@@ -107,32 +108,51 @@ class AzureTTSBatchService:
 
             print(f"Split into {len(chunks)} chunks")
 
-            # Step 2: Generate audio chunks
+            # Step 2: Generate audio chunks (PARALLEL)
             if progress_callback:
-                progress_callback(2, 4, f"Generating {len(chunks)} audio chunks...")
+                progress_callback(2, 4, f"Generating {len(chunks)} audio chunks in parallel...")
 
-            for i, chunk in enumerate(chunks, 1):
+            print(f"🚀 Parallelizing TTS chunk generation (max 5 concurrent)...")
+
+            # Helper function for parallel chunk processing
+            def process_chunk(chunk_data):
+                i, chunk = chunk_data
                 part_wav = temp_dir / f"part_{i:03d}.wav"
 
                 # Skip if already exists
                 if self._wav_looks_ok(part_wav):
                     print(f"↷ Skip (exists): {part_wav.name}")
-                    continue
+                    return i, "skipped"
 
                 ssml = self._build_ssml(chunk)
-
-                if progress_callback:
-                    progress_callback(2, 4, f"Generating chunk {i}/{len(chunks)}...")
-
                 self._synthesize_chunk(ssml, part_wav, chunk_index=i, total_chunks=len(chunks))
+                return i, "completed"
 
-                # Add small delay between chunks to avoid overwhelming Azure API
-                if i < len(chunks):  # Don't delay after last chunk
-                    time.sleep(self.chunk_delay_sec)
+            # Process chunks in parallel with ThreadPoolExecutor
+            # Max 5 workers to avoid Azure throttling while still getting 3-5x speedup
+            completed_count = 0
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                # Submit all chunks
+                futures = {
+                    executor.submit(process_chunk, (i, chunk)): i
+                    for i, chunk in enumerate(chunks, 1)
+                }
 
-                # Delay between requests to avoid throttling
-                if i < len(chunks):
-                    time.sleep(2)
+                # Process results as they complete
+                for future in as_completed(futures):
+                    chunk_idx = futures[future]
+                    try:
+                        i, status = future.result()
+                        completed_count += 1
+
+                        if progress_callback:
+                            progress_callback(2, 4, f"Generated chunk {completed_count}/{len(chunks)}...")
+
+                    except Exception as e:
+                        print(f"✗ Chunk {chunk_idx} failed: {e}")
+                        raise
+
+            print(f"✓ All {len(chunks)} chunks generated successfully")
 
             # Step 3: Merge chunks
             if progress_callback:

@@ -238,8 +238,15 @@ class YouTubeService:
 
             return None
 
+        except subprocess.CalledProcessError as e:
+            error_output = e.stderr if e.stderr else str(e)
+            print(f"Subtitle download failed for {lang}: {error_output}")
+            return None
+        except subprocess.TimeoutExpired:
+            print(f"Subtitle download timed out after 180 seconds for {lang}")
+            return None
         except Exception as e:
-            print(f"Subtitle download failed: {e}")
+            print(f"Subtitle download failed for {lang}: {e}")
             return None
 
     @staticmethod
@@ -392,6 +399,8 @@ class YouTubeService:
                 ],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 check=True
             )
 
