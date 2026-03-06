@@ -62,7 +62,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
-    command: celery -A backend.workers.celery_config:celery_app worker --loglevel=info --concurrency=2
+    command: celery -A backend.workers.celery_config:celery_app worker --loglevel=info --concurrency=1
 
 volumes:
   redis_data:

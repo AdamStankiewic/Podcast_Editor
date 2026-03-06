@@ -384,7 +384,7 @@ class ChatterboxTTSProvider(TTSProvider):
             "-i", f"anullsrc=r={self.model.sr}:cl=mono",
             "-t", "0.15",
             silence_path
-        ], check=True, capture_output=True)
+        ], check=True, capture_output=True, timeout=30)
 
         # Create concat file list with silence between chunks
         files_txt = temp_dir / "files.txt"
@@ -403,7 +403,7 @@ class ChatterboxTTSProvider(TTSProvider):
                 # Apply noise gate to remove artifacts
                 "-af", "agate=threshold=-40dB:ratio=2:attack=5:release=50",
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=1800)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"ffmpeg concat failed: {e.stderr.decode() if e.stderr else 'unknown'}")
@@ -442,7 +442,7 @@ class ChatterboxTTSProvider(TTSProvider):
                     "-i", str(input_wav),
                     "-af", filter_chain,
                     str(output_wav)
-                ], check=True, capture_output=True)
+                ], check=True, capture_output=True, timeout=1800)
             else:
                 # No processing needed, just copy
                 shutil.copy2(str(input_wav), str(output_wav))

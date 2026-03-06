@@ -171,7 +171,7 @@ class AudioPostProcessingService:
                 "-ar", "48000",  # 48kHz
                 "-sample_fmt", "s16",  # 16-bit signed
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=3600)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Pre-conversion failed: {e.stderr.decode() if e.stderr else 'unknown'}")
@@ -400,7 +400,7 @@ class AudioPostProcessingService:
                 "-i", str(input_wav),
                 "-af", filter_chain,
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=3600)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Studio chain failed: {e.stderr.decode() if e.stderr else 'unknown'}")
@@ -416,7 +416,7 @@ class AudioPostProcessingService:
                 "-i", str(input_wav),
                 "-af", f"loudnorm=I={self.target_lufs}:TP={self.true_peak_db}:LRA=11",
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=3600)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"LUFS normalization failed: {e.stderr.decode() if e.stderr else 'unknown'}")

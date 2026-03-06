@@ -161,7 +161,7 @@ class VideoRenderService:
                 "-show_entries", "format=duration",
                 "-of", "json",
                 str(media_file)
-            ], capture_output=True, text=True, check=True)
+            ], capture_output=True, text=True, check=True, timeout=30)
 
             data = json.loads(result.stdout)
             return float(data["format"]["duration"])
@@ -179,7 +179,7 @@ class VideoRenderService:
                 "-show_entries", "stream=codec_type",
                 "-of", "json",
                 str(video_file)
-            ], capture_output=True, text=True, check=True)
+            ], capture_output=True, text=True, check=True, timeout=30)
 
             data = json.loads(result.stdout)
             has_video = len(data.get("streams", [])) > 0
@@ -227,7 +227,7 @@ class VideoRenderService:
                 "-f", "lavfi",
                 "-i", f"anullsrc=r=48000:cl=stereo:d={target_duration}",
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=300)
             return
 
         try:
@@ -239,7 +239,7 @@ class VideoRenderService:
                 "-t", str(target_duration),
                 "-af", "afade=t=in:st=0:d=1,afade=t=out:st=" + str(target_duration - 1) + ":d=1",
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=1800)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to create music loop: {e.stderr.decode() if e.stderr else 'unknown'}")
@@ -273,7 +273,7 @@ class VideoRenderService:
                 "-c:a", "pcm_s16le",  # PCM for quality
                 "-ar", "48000",
                 str(output_wav)
-            ], check=True, capture_output=True)
+            ], check=True, capture_output=True, timeout=3600)
 
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Audio mixing failed: {e.stderr.decode() if e.stderr else 'unknown'}")
@@ -386,7 +386,7 @@ class VideoRenderService:
                 ]
 
                 print(f"Video processing command (with overlay): {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
 
                 # Show FFmpeg output (both stdout and stderr)
                 if result.stdout:
@@ -434,7 +434,7 @@ class VideoRenderService:
                 ]
 
                 print(f"Video processing command (no overlay): {' '.join(cmd)}")
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=7200)
 
                 if result.stderr:
                     print(f"FFmpeg video processing stderr: {result.stderr[-500:]}")  # Last 500 chars
@@ -465,7 +465,7 @@ class VideoRenderService:
             ]
 
             print(f"Merge command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=3600)
 
             if result.stderr:
                 print(f"FFmpeg merge stderr: {result.stderr}")

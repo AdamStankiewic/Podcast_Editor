@@ -3,7 +3,9 @@ Storage service for managing job artifacts and idempotency
 Provides filesystem-based storage with automatic directory creation
 """
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -34,15 +36,25 @@ class StorageService:
         return path.exists() and path.stat().st_size > 0
 
     def save_job_state(self, job: Job):
-        """Save job state to JSON file"""
+        """Save job state to JSON file (atomic write to prevent corruption on crash)"""
         job_dir = self.get_job_dir(job.id)
         state_file = job_dir / "job_state.json"
 
         # Update timestamp
         job.updated_at = datetime.utcnow()
 
-        with state_file.open("w", encoding="utf-8") as f:
-            json.dump(job.model_dump(mode='json'), f, indent=2, default=str)
+        # Write to a temp file first, then atomically rename to prevent partial writes
+        fd, tmp_path = tempfile.mkstemp(dir=job_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(job.model_dump(mode='json'), f, indent=2, default=str)
+            os.replace(tmp_path, state_file)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def load_job_state(self, job_id: str) -> Optional[Job]:
         """Load job state from JSON file"""

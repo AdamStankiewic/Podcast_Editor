@@ -246,3 +246,12 @@ def generate_tts(
                 storage.add_log(job_id, f"[{target_language.upper()}] Azure fallback also failed: {fallback_error}", "ERROR")
 
         raise RuntimeError(f"{lang_name} TTS generation failed: {e}")
+
+    finally:
+        # Unload Chatterbox model immediately to free GPU VRAM before the next pipeline step
+        if provider_type == TTSProviderType.CHATTERBOX and hasattr(provider, 'unload_model'):
+            try:
+                provider.unload_model()
+                storage.add_log(job_id, f"[{target_language.upper()}] Chatterbox model unloaded", "INFO")
+            except Exception:
+                pass

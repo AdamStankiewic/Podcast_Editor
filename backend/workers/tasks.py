@@ -4,6 +4,7 @@ New architecture: Separate tasks per language with dynamic time limits
 """
 import gc
 import os
+import traceback
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from backend.workers.celery_config import celery_app
@@ -227,8 +228,10 @@ def process_language_task(self, job_id: str, language: str, video_duration: floa
 
     except Exception as e:
         # Log error but don't crash - allow other languages to continue
+        tb = traceback.format_exc()
         storage.add_log(job_id, "=" * 60, "ERROR")
         storage.add_log(job_id, f"❌ {lang_name} processing FAILED: {e}", "ERROR")
+        storage.add_log(job_id, f"Traceback:\n{tb}", "ERROR")
         storage.add_log(job_id, "=" * 60, "ERROR")
 
         return {
@@ -375,12 +378,14 @@ def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = N
 
             except Exception as e:
                 # Unexpected error in language task
+                tb = traceback.format_exc()
                 language_errors[lang] = str(e)
                 storage.add_log(
                     job_id,
                     f"❌ {lang.upper()} crashed: {e}, continuing with other languages",
                     "ERROR"
                 )
+                storage.add_log(job_id, f"Traceback:\n{tb}", "ERROR")
 
         # FINAL STATUS DETERMINATION
         job.completed_at = datetime.utcnow()
@@ -437,12 +442,14 @@ def process_podcast_task(self, job_id: str, url: str, manual_transcript: str = N
 
     except Exception as e:
         # Catastrophic failure in orchestrator (download/transcript phase)
+        tb = traceback.format_exc()
         job.status = JobStatus.ERROR
         job.error_message = str(e)
         storage.save_job_state(job)
 
         storage.add_log(job_id, "=" * 60, "ERROR")
         storage.add_log(job_id, f"❌ PIPELINE FAILED (orchestrator): {e}", "ERROR")
+        storage.add_log(job_id, f"Traceback:\n{tb}", "ERROR")
         storage.add_log(job_id, "=" * 60, "ERROR")
 
         return {
