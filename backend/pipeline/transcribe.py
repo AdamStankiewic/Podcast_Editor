@@ -2,7 +2,10 @@
 Pipeline Step 2: Get German transcription
 Priority: Download from YouTube, fallback to manual paste (UI)
 Idempotent: Skips if transcript_de.txt already exists
+
+Also saves transcript_de_timed.json (timestamped segments) for clip selection.
 """
+import json
 from pathlib import Path
 from backend.services.youtube import YouTubeService
 from backend.services.storage import get_storage
@@ -47,8 +50,22 @@ def get_transcript(job_id: str, url: str, manual_transcript: str = None) -> dict
             transcript_text = yt_service.parse_vtt_to_text(subtitle_file)
 
             if transcript_text.strip():
-                # Save transcript
+                # Save plain transcript
                 transcript_path.write_text(transcript_text, encoding="utf-8")
+
+                # Save timestamped JSON for clip selection
+                timed_segments = yt_service.parse_vtt_with_timestamps(subtitle_file)
+                if timed_segments:
+                    timed_path = storage.get_artifact_path(job_id, "transcript_de_timed.json")
+                    timed_path.write_text(
+                        json.dumps(timed_segments, ensure_ascii=False, indent=2),
+                        encoding="utf-8"
+                    )
+                    storage.add_log(
+                        job_id,
+                        f"✓ Saved timed transcript ({len(timed_segments)} segments)",
+                        "INFO"
+                    )
 
                 storage.mark_step_complete(job_id, "transcript_de", str(transcript_path))
                 storage.add_log(job_id, f"✓ Downloaded transcript from YouTube ({len(transcript_text)} chars)", "INFO")
