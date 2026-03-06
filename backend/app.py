@@ -93,11 +93,14 @@ async def create_jobs(request: CreateJobRequest):
         if not video_id:
             raise HTTPException(status_code=400, detail=f"Invalid YouTube URL: {url}")
 
+        # Normalize to canonical URL to avoid malformed/concatenated URLs being stored
+        canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+
         # Create job
         job_id = str(uuid.uuid4())
         job = Job(
             id=job_id,
-            url=url,
+            url=canonical_url,
             status=JobStatus.QUEUED,
             video_id=video_id,
             languages=request.languages,
@@ -106,10 +109,10 @@ async def create_jobs(request: CreateJobRequest):
 
         # Save job state
         storage.save_job_state(job)
-        storage.add_log(job_id, f"Job created for URL: {url}", "INFO")
+        storage.add_log(job_id, f"Job created for URL: {canonical_url}", "INFO")
 
         # Queue Celery task
-        process_podcast_task.delay(job_id=job_id, url=url)
+        process_podcast_task.delay(job_id=job_id, url=canonical_url)
 
         created_jobs.append(job)
 

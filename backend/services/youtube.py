@@ -138,6 +138,10 @@ class YouTubeService:
                 "description": info.get("description"),
                 "uploader": info.get("uploader"),
             }
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Failed to get video info: yt-dlp returned no valid output for URL: {url}. stderr: {result.stderr[:500] if result.stderr else 'empty'}")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to get video info: yt-dlp exited with error: {e.stderr[:500] if e.stderr else str(e)}")
         except Exception as e:
             raise RuntimeError(f"Failed to get video info: {e}")
 
